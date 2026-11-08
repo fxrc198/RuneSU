@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,7 +115,15 @@ class MainActivity : ComponentActivity() {
                                 1 -> Placeholder("文件", "双栏文件管理，下一步做")
                                 2 -> Placeholder("模块", "接入 /data/adb/modules 后显示")
                                 3 -> Placeholder("设置", "外观 · 导航 · 关于")
-                                else -> Home(suPath, checked, modules, snap, refreshing) { refresh() }
+                                else -> Home(
+                                    suPath = suPath,
+                                    checked = checked,
+                                    modules = modules,
+                                    snap = snap,
+                                    refreshing = refreshing,
+                                    onRefresh = { refresh() },
+                                    onOpen = { page = it }
+                                )
                             }
                         }
                         BottomBar(page) { idx ->
@@ -130,7 +140,7 @@ class MainActivity : ComponentActivity() {
         refreshing = true
         val ctx = applicationContext
         Thread {
-            val cpu = cpuUsage()
+            val cpu = cpuLoad()
             val mem = memInfo()
             val st = storageInfo()
             val bat = batteryPct(ctx)
@@ -224,8 +234,11 @@ private fun Home(
     modules: Int?,
     snap: Snapshot,
     refreshing: Boolean,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onOpen: (Int) -> Unit
 ) {
+    val ctx = LocalContext.current
+
     Column(
         Modifier
             .fillMaxSize()
@@ -253,20 +266,12 @@ private fun Home(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RootBadge(suPath, checked)
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "Android ${Build.VERSION.RELEASE} · ${Build.SUPPORTED_ABIS.firstOrNull() ?: "-"}",
-                fontSize = 11.sp, color = RuneTokens.Muted,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
-        }
+        Spacer(Modifier.height(12.dp))
+        RootStatus(suPath, checked)
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Tile("CPU", snap.cpu, RuneTokens.Accent, Icons.Outlined.Memory)
+            Tile("负载", snap.cpu, RuneTokens.Accent, Icons.Outlined.Memory)
             Tile("内存", snap.mem, RuneTokens.Blue, Icons.Outlined.DeveloperBoard)
         }
         Spacer(Modifier.height(10.dp))
@@ -277,15 +282,32 @@ private fun Home(
 
         Spacer(Modifier.height(12.dp))
         SectionCard {
-            InfoRow(Icons.Outlined.Thermostat, "电池温度", snap.temp?.let { String.format("%.1f °C", it) } ?: "—")
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                QuickAction(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "未接入") { onOpen(2) }
+                QuickAction(Icons.Outlined.Person, "超级用户", "未接入") {
+                    Toast.makeText(ctx, "接入 Root 后可用", Toast.LENGTH_SHORT).show()
+                }
+                QuickAction(Icons.Outlined.Terminal, "终端", "未接入") {
+                    Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
+                }
+                QuickAction(Icons.Outlined.Description, "日志", "未接入") {
+                    Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        SectionCard {
+            InfoRow(Icons.Outlined.Code, "内核版本", System.getProperty("os.version") ?: "—")
             RowDivider()
-            InfoRow(Icons.Outlined.Memory, "内存", snap.memText ?: "—")
-            RowDivider()
-            InfoRow(Icons.Outlined.Storage, "存储", snap.storageText ?: "—")
-            RowDivider()
-            InfoRow(Icons.Outlined.Thermostat, "内核版本", System.getProperty("os.version") ?: "—")
+            InfoRow(Icons.Outlined.Memory, "处理器", cpuModel() ?: "—")
             RowDivider()
             InfoRow(Icons.Outlined.Fingerprint, "系统指纹", Build.FINGERPRINT)
+            RowDivider()
+            InfoRow(Icons.Outlined.Thermostat, "电池温度", snap.temp?.let { String.format("%.1f °C", it) } ?: "—")
         }
 
         Spacer(Modifier.height(12.dp))
@@ -293,11 +315,43 @@ private fun Home(
             InfoRow(Icons.Outlined.Security, "SELinux 状态", selinuxStatus())
             RowDivider()
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
-            RowDivider()
-            InfoRow(Icons.Outlined.Extension, "模块数量", modules?.let { "$it 个" } ?: "—")
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun RootStatus(suPath: String?, checked: Boolean) {
+    val color = when {
+        !checked -> RuneTokens.Muted
+        suPath != null -> RuneTokens.Success
+        else -> RuneTokens.Danger
+    }
+    val title = when {
+        !checked -> "正在检测…"
+        suPath != null -> "Root 已连接"
+        else -> "未检测到 Root"
+    }
+    val sub = if (suPath != null) suPath else "安装 KernelSU 后自动启用"
+
+    Surface(
+        color = color.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(color, CircleShape))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    sub, fontSize = 11.sp, color = RuneTokens.Muted,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 
@@ -306,7 +360,8 @@ private fun RowScope.Tile(label: String, value: Int?, color: Color, icon: ImageV
     Surface(
         color = RuneTokens.Panel,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.weight(1f).height(104.dp).bouncy(depth = 0.95f, damping = 0.28f, stiffness = 380f)
+        modifier = Modifier.weight(1f).height(104.dp)
+            .bouncy(depth = 0.95f, damping = 0.28f, stiffness = 380f)
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -334,25 +389,21 @@ private fun RowScope.Tile(label: String, value: Int?, color: Color, icon: ImageV
 }
 
 @Composable
-private fun RootBadge(suPath: String?, checked: Boolean) {
-    val color = when {
-        !checked -> RuneTokens.Muted
-        suPath != null -> RuneTokens.Success
-        else -> RuneTokens.Danger
-    }
-    val label = when {
-        !checked -> "检测中"
-        suPath != null -> "Root 已连接"
-        else -> "未 Root"
-    }
-    Row(
-        Modifier.background(color.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun RowScope.QuickAction(icon: ImageVector, label: String, sub: String, onClick: () -> Unit) {
+    Column(
+        Modifier.weight(1f).bouncy(depth = 0.90f, damping = 0.26f, stiffness = 500f) { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(Modifier.size(5.dp).background(color, CircleShape))
-        Spacer(Modifier.width(5.dp))
-        Text(label, fontSize = 10.sp, color = color, fontWeight = FontWeight.Medium)
+        Box(
+            Modifier.size(46.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(21.dp))
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(label, fontSize = 11.5.sp, color = RuneTokens.Text)
+        Spacer(Modifier.height(1.dp))
+        Text(sub, fontSize = 9.5.sp, color = RuneTokens.Muted)
     }
 }
 
@@ -361,7 +412,7 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         color = RuneTokens.Panel,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.97f, damping = 0.34f, stiffness = 420f)
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.36f, stiffness = 450f)
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), content = content)
     }
@@ -426,6 +477,18 @@ private fun BottomBar(current: Int, onSelect: (Int) -> Unit) {
     }
 }
 
+private fun cpuLoad(): Int? {
+    val stat = cpuUsage()
+    if (stat != null) return stat
+    return try {
+        val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+        val load = File("/proc/loadavg").readText().trim().split(Regex("\\s+")).first().toDouble()
+        ((load / cores) * 100.0).toInt().coerceIn(0, 100)
+    } catch (_: Exception) {
+        null
+    }
+}
+
 private fun cpuUsage(): Int? {
     fun read(): LongArray {
         val line = File("/proc/stat").readLines()
@@ -445,6 +508,12 @@ private fun cpuUsage(): Int? {
         null
     }
 }
+
+private fun cpuModel(): String? = try {
+    File("/proc/cpuinfo").readLines()
+        .firstOrNull { it.startsWith("Hardware") }
+        ?.substringAfter(':')?.trim()?.ifEmpty { null }
+} catch (_: Exception) { null }
 
 private fun memInfo(): Pair<Int, String>? = try {
     val map = File("/proc/meminfo").readLines().mapNotNull { line ->
