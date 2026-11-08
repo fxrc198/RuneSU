@@ -12,13 +12,18 @@ import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,8 +39,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -145,196 +154,176 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 按压反馈：缩到 0.96 再 spring 弹回，圆角底替代系统方框水波纹。 */
+@Composable
+private fun Modifier.pressable(
+    shape: Shape = RoundedCornerShape(12.dp),
+    onClick: () -> Unit
+): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val haptic = LocalHapticFeedback.current
+
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.34f, stiffness = 700f),
+        label = "press-scale"
+    )
+    val glow by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 700f),
+        label = "press-glow"
+    )
+
+    return this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .background(RuneTokens.Accent.copy(alpha = 0.07f * glow), shape)
+        .clickable(interactionSource = interaction, indication = null) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        }
+}
+
 @Composable
 private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
-    val storage = remember { storageInfo() }
-    var detail by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val ctx = LocalContext.current
+    val version = remember { versionName(ctx) }
+    val kernel = remember { System.getProperty("os.version") ?: "-" }
+    val model = remember { "${Build.MANUFACTURER} ${Build.MODEL}" }
+    val fingerprint = remember { Build.FINGERPRINT }
+    val selinux = remember { selinuxStatus() }
+    val seccomp = remember { seccompStatus() }
 
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
-                .padding(horizontal = 14.dp)
-        ) {
-            Spacer(Modifier.height(10.dp))
-            Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
-            Spacer(Modifier.height(2.dp))
-            Text("设备与 Root 状态", fontSize = 12.sp, color = RuneTokens.Muted)
-
-            Spacer(Modifier.height(14.dp))
-            DeviceCard(suPath, checked, modules, storage) { detail = it }
-
-            Spacer(Modifier.height(10.dp))
-            StorageCard(storage)
-
-            Spacer(Modifier.height(24.dp))
-        }
-
-        detail?.let { d -> DetailSheet(d.first, d.second) { detail = null } }
-    }
-}
-
-@Composable
-private fun DeviceCard(
-    suPath: String?,
-    checked: Boolean,
-    modules: Int?,
-    storage: Pair<Long, Long>?,
-    onDetail: (Pair<String, String>) -> Unit
-) {
-    val kernel = System.getProperty("os.version") ?: "-"
-    val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
-
-    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(38.dp).background(RuneTokens.Accent.copy(alpha = 0.14f), RoundedCornerShape(11.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Outlined.PhoneAndroid, null, tint = RuneTokens.Accent, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${Build.MANUFACTURER} ${Build.MODEL}",
-                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Android ${Build.VERSION.RELEASE} · $abi",
-                        fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                RootBadge(suPath, checked)
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.Memory, "内核", kernel) { onDetail("内核" to kernel) }
-                DiCell(Icons.Outlined.DeveloperBoard, "架构", abi) { onDetail("架构" to abi) }
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-") {
-                    onDetail("模块" to (modules?.let { "$it 个模块" } ?: "未检测到"))
-                }
-                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-") {
-                    onDetail("可用存储" to (storage?.let { formatSize(it.second) } ?: "-"))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.DiCell(icon: ImageVector, label: String, value: String, onClick: () -> Unit) {
-    Surface(
-        color = RuneTokens.Panel2,
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.weight(1f).heightIn(min = 56.dp).clickable { onClick() }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 14.dp)
     ) {
-        Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier.size(28.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
-            }
-            Spacer(Modifier.width(7.dp))
-            Column(Modifier.weight(1f)) {
-                Text(label, fontSize = 10.sp, lineHeight = 13.sp, color = RuneTokens.Muted)
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    value, fontSize = 12.sp, lineHeight = 15.sp, color = RuneTokens.Text,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
+        Spacer(Modifier.height(18.dp))
+        Text("RuneSU", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+        Spacer(Modifier.height(4.dp))
+        Text("设备与 Root 状态", fontSize = 12.sp, color = RuneTokens.Muted)
+
+        Spacer(Modifier.height(18.dp))
+        StatusCard(suPath, checked)
+
+        Spacer(Modifier.height(12.dp))
+        SectionCard {
+            InfoRow(Icons.Outlined.Info, "管理器版本", version) { copy(ctx, version) }
+            RowDivider()
+            InfoRow(Icons.Outlined.Memory, "内核版本", kernel) { copy(ctx, kernel) }
+            RowDivider()
+            InfoRow(Icons.Outlined.PhoneAndroid, "设备型号", model) { copy(ctx, model) }
+            RowDivider()
+            InfoRow(Icons.Outlined.Fingerprint, "系统指纹", fingerprint) { copy(ctx, fingerprint) }
         }
+
+        Spacer(Modifier.height(12.dp))
+        SectionCard {
+            InfoRow(Icons.Outlined.Security, "SELinux 状态", selinux) { copy(ctx, selinux) }
+            RowDivider()
+            InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccomp) { copy(ctx, seccomp) }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        SectionCard {
+            InfoRow(
+                Icons.Outlined.Favorite,
+                "支持开发",
+                "RuneSU 将保持免费开源，向开发者捐赠以表示支持",
+                accent = true
+            ) {}
+        }
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun RootBadge(suPath: String?, checked: Boolean) {
+private fun StatusCard(suPath: String?, checked: Boolean) {
+    val ok = suPath != null
     val color = when {
         !checked -> RuneTokens.Muted
-        suPath != null -> RuneTokens.Success
+        ok -> RuneTokens.Success
         else -> RuneTokens.Danger
     }
-    val label = when {
-        !checked -> "检测中"
-        suPath != null -> "Root"
-        else -> "未 Root"
-    }
-    Row(
-        Modifier.background(color.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        color = color.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Box(Modifier.size(5.dp).background(color, CircleShape))
-        Spacer(Modifier.width(5.dp))
-        Text(label, fontSize = 10.sp, color = color, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun StorageCard(storage: Pair<Long, Long>?) {
-    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("内部存储", fontSize = 12.sp, color = RuneTokens.Muted)
-                Text(
-                    storage?.let { "${formatSize(it.first - it.second)} / ${formatSize(it.first)}" } ?: "-",
-                    fontSize = 11.sp, color = RuneTokens.Text
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            val ratio = storage?.let {
-                if (it.first <= 0) 0f else ((it.first - it.second).toFloat() / it.first)
-            } ?: 0f
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.fillMaxWidth().height(6.dp)
-                    .background(RuneTokens.Panel2, RoundedCornerShape(4.dp))
+                Modifier.size(40.dp).background(color.copy(alpha = 0.16f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    Modifier.fillMaxWidth(ratio.coerceIn(0f, 1f)).height(6.dp)
-                        .background(RuneTokens.Accent, RoundedCornerShape(4.dp))
+                Icon(
+                    when {
+                        !checked -> Icons.Outlined.HourglassEmpty
+                        ok -> Icons.Outlined.CheckCircle
+                        else -> Icons.Outlined.ErrorOutline
+                    },
+                    null, tint = color, modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when {
+                        !checked -> "正在检测…"
+                        ok -> "Root 已连接"
+                        else -> "未检测到 Root"
+                    },
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (ok) "su: $suPath" else "安装 KernelSU 后自动启用，当前仅可使用文件管理",
+                    fontSize = 12.sp, color = RuneTokens.Muted, lineHeight = 17.sp
                 )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DetailSheet(title: String, value: String, onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = RuneTokens.Panel) {
-        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
-            Text(title, fontSize = 12.sp, color = RuneTokens.Muted)
-            Spacer(Modifier.height(8.dp))
-            Text(value, fontSize = 15.sp, color = RuneTokens.Text, lineHeight = 21.sp)
-            Spacer(Modifier.height(18.dp))
-            Row {
-                Button(
-                    onClick = {
-                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("RuneSU", value))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Accent)
-                ) { Text("复制") }
-                Spacer(Modifier.width(10.dp))
-                TextButton(onClick = onDismiss) { Text("关闭", color = RuneTokens.Muted) }
-            }
+private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), content = content)
+    }
+}
+
+@Composable
+private fun InfoRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    accent: Boolean = false,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 6.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            icon, null,
+            tint = if (accent) RuneTokens.Accent else RuneTokens.Muted,
+            modifier = Modifier.padding(top = 1.dp).size(22.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
+            Spacer(Modifier.height(3.dp))
+            Text(value, fontSize = 13.sp, color = RuneTokens.Muted, lineHeight = 18.sp)
         }
     }
+}
+
+@Composable
+private fun RowDivider() {
+    HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
 }
 
 @Composable
@@ -364,7 +353,8 @@ private fun BottomBar(current: Int, onSelect: (Int) -> Unit) {
                 val active = current == idx
                 val tint = if (active) RuneTokens.Accent else RuneTokens.Muted
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(idx) },
+                    Modifier.weight(1f).fillMaxHeight()
+                        .pressable(RoundedCornerShape(14.dp)) { onSelect(idx) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -410,7 +400,7 @@ private fun FileBrowser(startPath: String) {
 @Composable
 private fun FileRow(f: File, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }
+        Modifier.fillMaxWidth().pressable { onClick() }
             .padding(horizontal = 12.dp, vertical = 4.dp).height(44.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -438,6 +428,31 @@ private fun FileRow(f: File, onClick: () -> Unit) {
         }
     }
 }
+
+private fun copy(ctx: Context, text: String) {
+    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("RuneSU", text))
+    Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
+}
+
+private fun versionName(ctx: Context): String = try {
+    ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "-"
+} catch (_: Exception) { "-" }
+
+private fun selinuxStatus(): String = try {
+    val v = File("/sys/fs/selinux/enforce").readText().trim()
+    if (v == "1") "强制执行" else "宽容模式"
+} catch (_: Exception) { "未知" }
+
+private fun seccompStatus(): String = try {
+    val line = File("/proc/self/status").readLines().firstOrNull { it.startsWith("Seccomp:") }
+    when (line?.substringAfter(":")?.trim()) {
+        "0" -> "关闭"
+        "1" -> "严格模式"
+        "2" -> "过滤模式"
+        else -> "未知"
+    }
+} catch (_: Exception) { "未知" }
 
 private fun storageInfo(): Pair<Long, Long>? = try {
     val s = StatFs(Environment.getExternalStorageDirectory().absolutePath)
