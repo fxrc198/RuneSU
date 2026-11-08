@@ -24,7 +24,7 @@ import java.util.UUID
 @Composable
 fun WorkflowScreen() {
     val ctx = LocalContext.current
-    var tasks by remember { mutableStateOf(WorkflowStore.load(ctx)) }
+    var tasks by remember { mutableStateOf<List<WfTask>>(WorkflowStore.load(ctx)) }
     var editing by remember { mutableStateOf<WfTask?>(null) }
     var isNew by remember { mutableStateOf(false) }
 
@@ -38,7 +38,7 @@ fun WorkflowScreen() {
                 editing = WfTask(id = UUID.randomUUID().toString(), name = "", trigger = "app", action = "script")
                 isNew = true
             }) {
-                Icon(Icons.Outlined.Add, contentDescription = "新建", tint = RuneTokens.Accent)
+                Icon(Icons.Outlined.Add, contentDescription = "新建", tint = RuneTokens.Primary)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -114,11 +114,11 @@ private fun TaskCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(34.dp).background(
-                        RuneTokens.Accent.copy(alpha = 0.12f), RoundedCornerShape(10.dp)
+                        RuneTokens.Primary.copy(alpha = 0.12f), RoundedCornerShape(10.dp)
                     ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.AccountTree, null, tint = RuneTokens.Accent,
+                    Icon(Icons.Outlined.AccountTree, null, tint = RuneTokens.Primary,
                         modifier = Modifier.size(17.dp))
                 }
                 Spacer(Modifier.width(12.dp))
@@ -180,7 +180,7 @@ private fun TaskDialog(
                     value = name, onValueChange = { name = it }, singleLine = true,
                     label = { Text("任务名称") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = RuneTokens.Accent,
+                        focusedBorderColor = RuneTokens.Primary,
                         unfocusedBorderColor = RuneTokens.Border
                     )
                 )
@@ -198,7 +198,7 @@ private fun TaskDialog(
                         value = triggerArg, onValueChange = { triggerArg = it }, singleLine = true,
                         label = { Text(if (trigger == "app") "包名" else "监听路径") },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = RuneTokens.Accent,
+                            focusedBorderColor = RuneTokens.Primary,
                             unfocusedBorderColor = RuneTokens.Border
                         )
                     )
@@ -224,7 +224,7 @@ private fun TaskDialog(
                         )
                     },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = RuneTokens.Accent,
+                        focusedBorderColor = RuneTokens.Primary,
                         unfocusedBorderColor = RuneTokens.Border
                     )
                 )
@@ -239,7 +239,7 @@ private fun TaskDialog(
                         action = action, actionArg = actionArg.trim()
                     )
                 )
-            }) { Text("保存", color = RuneTokens.Accent) }
+            }) { Text("保存", color = RuneTokens.Primary) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = RuneTokens.Muted) } }
     )
@@ -248,13 +248,13 @@ private fun TaskDialog(
 @Composable
 private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        color = if (selected) RuneTokens.Accent.copy(alpha = 0.14f) else RuneTokens.Panel2,
+        color = if (selected) RuneTokens.Primary.copy(alpha = 0.14f) else RuneTokens.Panel2,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.clickable { onClick() }
     ) {
         Text(
             label, fontSize = 11.5.sp,
-            color = if (selected) RuneTokens.Accent else RuneTokens.Muted,
+            color = if (selected) RuneTokens.Primary else RuneTokens.Muted,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
