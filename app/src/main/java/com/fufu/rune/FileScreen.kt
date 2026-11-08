@@ -30,9 +30,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun FileScreen(rootPath: String) {
@@ -40,64 +37,134 @@ fun FileScreen(rootPath: String) {
     var left by remember { mutableStateOf(rootPath) }
     var right by remember { mutableStateOf("$rootPath/Download") }
     var tick by remember { mutableStateOf(0) }
+    var sortL by remember { mutableStateOf(SortBy.NAME) }
+    var sortR by remember { mutableStateOf(SortBy.NAME) }
+    var selL by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selR by remember { mutableStateOf<Set<String>>(emptySet()) }
     var menuFor by remember { mutableStateOf<File?>(null) }
     var menuPane by remember { mutableStateOf(0) }
     var renameFor by remember { mutableStateOf<File?>(null) }
-    var deleteFor by remember { mutableStateOf<File?>(null) }
+    var deleteFor by remember { mutableStateOf<List<File>?>(null) }
     var newPane by remember { mutableStateOf(-1) }
+    var bookmarks by remember { mutableStateOf(listOf<String>()) }
+    var bookmarkMenu by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
 
-    fun runOp(msg: () -> String?) {
+    fun runOp(msg: () -> String) {
         Thread {
             val text = try { msg() } catch (e: Exception) { "失败：${e.message}" }
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 tick++
-                text?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show() }
+                Toast.makeText(ctx, text, Toast.LENGTH_SHORT).show()
             }
         }.start()
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Text(
-            "文件管理",
-            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
-            modifier = Modifier.padding(start = 14.dp, top = 10.dp, bottom = 8.dp)
-        )
-        Row(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("文件管理", fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                color = RuneTokens.Text, modifier = Modifier.weight(1f))
+            IconButton(onClick = { bookmarkMenu = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.BookmarkBorder, contentDescription = "书签",
+                    tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
+            }
+        }
+
+        Row(Modifier.weight(1f)) {
             DirPane(
-                modifier = Modifier.weight(1f),
-                path = left, tick = tick,
-                onPath = { left = it },
+                modifier = Modifier.weight(1f), path = left, tick = tick, sort = sortL,
+                selection = selL,
+                onSort = { sortL = nextSort(sortL) },
+                onPath = { left = it; selL = emptySet() },
+                onToggle = { selL = toggle(selL, it) },
                 onMenu = { menuFor = it; menuPane = 0 },
                 onNew = { newPane = 0; input = "" }
             )
             Box(Modifier.width(1.dp).fillMaxHeight().background(RuneTokens.Border))
             DirPane(
-                modifier = Modifier.weight(1f),
-                path = right, tick = tick,
-                onPath = { right = it },
+                modifier = Modifier.weight(1f), path = right, tick = tick, sort = sortR,
+                selection = selR,
+                onSort = { sortR = nextSort(sortR) },
+                onPath = { right = it; selR = emptySet() },
+                onToggle = { selR = toggle(selR, it) },
                 onMenu = { menuFor = it; menuPane = 1 },
                 onNew = { newPane = 1; input = "" }
             )
+        }
+
+        if (selL.isNotEmpty() || selR.isNotEmpty()) {
+            val pane = if (selL.isNotEmpty()) 0 else 1
+            val sel = if (pane == 0) selL else selR
+            val files = sel.map { File(it) }
+            val other = if (pane == 0) File(right) else File(left)
+            Surface(color = RuneTokens.Panel2) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    BatchBtn(Icons.Outlined.ContentCopy, "复制") {
+                        runOp { batch(files) { copyRecursive(it, other) } }
+                        if (pane == 0) selL = emptySet() else selR = emptySet()
+                    }
+                    BatchBtn(Icons.Outlined.DriveFileMove, "移动") {
+                        runOp { batch(files) { it.renameTo(File(other, it.name)) } }
+                        if (pane == 0) selL = emptySet() else selR = emptySet()
+                    }
+                    BatchBtn(Icons.Outlined.Delete, "删除", danger = true) { deleteFor = files }
+                    BatchBtn(Icons.Outlined.Close, "取消") {
+                        if (pane == 0) selL = emptySet() else selR = emptySet()
+                    }
+                }
+            }
         }
     }
 
     menuFor?.let { target ->
         val otherDir = File(if (menuPane == 0) right else left)
+        val curDir = if (menuPane == 0) File(left) else File(right)
         FileActionDialog(
             file = target,
             onDismiss = { menuFor = null },
-            onCopy = {
-                menuFor = null
-                runOp { if (copyRecursive(target, otherDir)) "已复制到「${otherDir.name}」" else "复制失败" }
-            },
-            onMove = {
-                menuFor = null
-                runOp { if (target.renameTo(File(otherDir, target.name))) "已移动到「${otherDir.name}」" else "移动失败" }
-            },
+            onCopy = { menuFor = null; runOp { if (copyRecursive(target, otherDir)) "已复制" else "复制失败" } },
+            onMove = { menuFor = null; runOp { if (target.renameTo(File(otherDir, target.name))) "已移动" else "移动失败" } },
             onRename = { input = target.name; renameFor = target; menuFor = null },
-            onDelete = { deleteFor = target; menuFor = null }
+            onDelete = { deleteFor = listOf(target); menuFor = null },
+            onZip = {
+                menuFor = null
+                runOp {
+                    val out = File(target.parentFile, "${target.name}.zip")
+                    if (zipFile(target, out)) "已压缩" else "压缩失败"
+                }
+            },
+            onUnzip = if (target.name.lowercase().endsWith(".zip")) ({
+                menuFor = null
+                runOp { if (unzip(target, curDir)) "已解压" else "解压失败" }
+            }) else null
         )
+    }
+
+    if (bookmarkMenu) {
+        Dialog(onDismissRequest = { bookmarkMenu = false }) {
+            Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(24.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text("书签与快速访问", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                    Spacer(Modifier.height(8.dp))
+                    QuickItem("添加当前目录到书签") {
+                        bookmarks = (bookmarks + left + right).distinct()
+                        bookmarkMenu = false
+                    }
+                    QuickItem("内部存储") { bookmarkMenu = false; left = rootPath }
+                    QuickItem("Download") { bookmarkMenu = false; left = "$rootPath/Download" }
+                    QuickItem("Android/data") { bookmarkMenu = false; left = "$rootPath/Android/data" }
+                    bookmarks.forEach { b ->
+                        QuickItem(b) { bookmarkMenu = false; left = b }
+                    }
+                }
+            }
+        }
     }
 
     if (newPane >= 0) {
@@ -123,130 +190,94 @@ fun FileScreen(rootPath: String) {
             })
     }
 
-    deleteFor?.let { target ->
+    deleteFor?.let { targets ->
         AlertDialog(
             onDismissRequest = { deleteFor = null },
             containerColor = RuneTokens.Panel,
             shape = RoundedCornerShape(24.dp),
             title = { Text("删除", fontWeight = FontWeight.SemiBold) },
-            text = { Text("确定删除「${target.name}」？\n此操作不可恢复。", fontSize = 13.sp, color = RuneTokens.Muted) },
+            text = {
+                Text(
+                    if (targets.size == 1) "确定删除「${targets[0].name}」？\n此操作不可恢复。"
+                    else "确定删除已选的 ${targets.size} 项？\n此操作不可恢复。",
+                    fontSize = 13.sp, color = RuneTokens.Muted
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     deleteFor = null
-                    runOp { if (deleteRecursive(target)) "已删除" else "删除失败" }
+                    runOp { batch(targets) { deleteRecursive(it) } }
+                    selL = emptySet(); selR = emptySet()
                 }) { Text("删除", color = RuneTokens.Danger) }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteFor = null }) { Text("取消", color = RuneTokens.Muted) }
-            }
+            dismissButton = { TextButton(onClick = { deleteFor = null }) { Text("取消", color = RuneTokens.Muted) } }
         )
     }
 }
 
-@Composable
-private fun FileActionDialog(
-    file: File,
-    onDismiss: () -> Unit,
-    onCopy: () -> Unit,
-    onMove: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(24.dp)) {
-            Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                Text(
-                    file.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                    color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    file.absolutePath, fontSize = 10.5.sp, color = RuneTokens.Muted,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(14.dp))
-                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", RuneTokens.Accent, onCopy)
-                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", RuneTokens.Blue, onMove)
-                DlgAction(Icons.Outlined.Edit, "重命名", "修改名称", RuneTokens.Amber, onRename)
-                DlgAction(Icons.Outlined.Delete, "删除", "删除后不可恢复", RuneTokens.Danger, onDelete, danger = true)
-            }
-        }
-    }
+private fun nextSort(s: SortBy): SortBy = when (s) {
+    SortBy.NAME -> SortBy.SIZE
+    SortBy.SIZE -> SortBy.TIME
+    SortBy.TIME -> SortBy.NAME
 }
 
-@Composable
-private fun DlgAction(
-    icon: ImageVector,
-    title: String,
-    desc: String,
-    tint: Color,
-    onClick: () -> Unit,
-    danger: Boolean = false
-) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }
-            .padding(vertical = 9.dp, horizontal = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(38.dp).background(tint.copy(alpha = 0.12f), RoundedCornerShape(11.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(19.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                color = if (danger) RuneTokens.Danger else RuneTokens.Text
-            )
-            Spacer(Modifier.height(1.dp))
-            Text(desc, fontSize = 10.5.sp, color = RuneTokens.Muted)
-        }
-    }
-}
+private fun toggle(set: Set<String>, path: String): Set<String> =
+    if (set.contains(path)) set - path else set + path
 
 @Composable
 private fun DirPane(
     modifier: Modifier,
     path: String,
     tick: Int,
+    sort: SortBy,
+    selection: Set<String>,
+    onSort: () -> Unit,
     onPath: (String) -> Unit,
+    onToggle: (String) -> Unit,
     onMenu: (File) -> Unit,
     onNew: () -> Unit
 ) {
-    val entries = remember(path, tick) { listDir(path) }
+    val entries = remember(path, tick, sort) { listDir(path, sort) }
     val parent = File(path).parentFile
+    val selecting = selection.isNotEmpty()
 
     Column(modifier.fillMaxHeight()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 4.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { parent?.let { onPath(it.absolutePath) } }, modifier = Modifier.size(34.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上级",
+            IconButton(onClick = { parent?.let { onPath(it.absolutePath) } }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上级",
                     tint = if (parent != null) RuneTokens.Text else RuneTokens.Muted.copy(alpha = 0.35f),
-                    modifier = Modifier.size(17.dp)
-                )
+                    modifier = Modifier.size(16.dp))
             }
             Text(
                 if (path == "/sdcard" || path.endsWith("/0")) "内部存储"
                 else path.substringAfterLast('/').ifEmpty { "/" },
-                fontSize = 11.sp, color = RuneTokens.Text, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                fontSize = 10.5.sp, color = RuneTokens.Text, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onNew, modifier = Modifier.size(34.dp)) {
-                Icon(
-                    Icons.Outlined.CreateNewFolder, contentDescription = "新建",
-                    tint = RuneTokens.Accent, modifier = Modifier.size(17.dp)
-                )
+            IconButton(onClick = onSort, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Outlined.Sort, contentDescription = sort.label,
+                    tint = RuneTokens.Muted, modifier = Modifier.size(15.dp))
+            }
+            IconButton(onClick = onNew, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建",
+                    tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
             }
         }
         LazyColumn(Modifier.fillMaxSize()) {
             items(entries, key = { it.absolutePath }) { f ->
-                MiniRow(f, onClick = { if (f.isDirectory) onPath(f.absolutePath) }, onLong = { onMenu(f) })
+                MiniRow(
+                    file = f,
+                    selected = selection.contains(f.absolutePath),
+                    selecting = selecting,
+                    onClick = {
+                        if (selecting) onToggle(f.absolutePath)
+                        else if (f.isDirectory) onPath(f.absolutePath)
+                    },
+                    onLong = { if (!selecting) onToggle(f.absolutePath) else onMenu(f) }
+                )
             }
             item { Spacer(Modifier.height(20.dp)) }
         }
@@ -255,7 +286,13 @@ private fun DirPane(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MiniRow(file: File, onClick: () -> Unit, onLong: () -> Unit) {
+private fun MiniRow(
+    file: File,
+    selected: Boolean,
+    selecting: Boolean,
+    onClick: () -> Unit,
+    onLong: () -> Unit
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -273,6 +310,10 @@ private fun MiniRow(file: File, onClick: () -> Unit, onLong: () -> Unit) {
                 onClick = onClick,
                 onLongClick = onLong
             )
+            .background(
+                if (selected) RuneTokens.Accent.copy(alpha = 0.12f) else Color.Transparent,
+                RoundedCornerShape(8.dp)
+            )
             .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -283,36 +324,111 @@ private fun MiniRow(file: File, onClick: () -> Unit, onLong: () -> Unit) {
             ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file),
-                null,
-                tint = if (file.isDirectory) RuneTokens.Accent else RuneTokens.Muted,
-                modifier = Modifier.size(15.dp)
-            )
+            if (selected) {
+                Icon(Icons.Outlined.Check, null, tint = RuneTokens.Accent, modifier = Modifier.size(15.dp))
+            } else {
+                Icon(
+                    if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file), null,
+                    tint = if (file.isDirectory) RuneTokens.Accent else RuneTokens.Muted,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
         }
         Spacer(Modifier.width(7.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                file.name, fontSize = 11.5.sp, color = RuneTokens.Text,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
+            Text(file.name, fontSize = 11.5.sp, color = RuneTokens.Text,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 if (file.isDirectory) dateText(file.lastModified()) else formatSize(file.length()),
-                fontSize = 9.5.sp, color = RuneTokens.Muted,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
+                fontSize = 9.5.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun InputDialog(
-    title: String,
-    value: String,
-    onChange: (String) -> Unit,
-    confirm: String,
+private fun FileActionDialog(
+    file: File,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onZip: () -> Unit,
+    onUnzip: (() -> Unit)?
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(24.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Text(file.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(3.dp))
+                Text(file.absolutePath, fontSize = 10.5.sp, color = RuneTokens.Muted,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(12.dp))
+                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", RuneTokens.Accent, onCopy)
+                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", RuneTokens.Accent, onMove)
+                DlgAction(Icons.Outlined.FolderZip, "压缩", "打包为 ${file.name}.zip", RuneTokens.Muted, onZip)
+                onUnzip?.let { DlgAction(Icons.Outlined.Unarchive, "解压", "解压到当前目录", RuneTokens.Muted, it) }
+                DlgAction(Icons.Outlined.Edit, "重命名", "修改名称", RuneTokens.Muted, onRename)
+                DlgAction(Icons.Outlined.Delete, "删除", "删除后不可恢复", RuneTokens.Danger, onDelete, danger = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DlgAction(
+    icon: ImageVector, title: String, desc: String, tint: Color,
+    onClick: () -> Unit, danger: Boolean = false
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(36.dp).background(tint.copy(alpha = 0.12f), RoundedCornerShape(11.dp)),
+            contentAlignment = Alignment.Center
+        ) { Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp)) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                color = if (danger) RuneTokens.Danger else RuneTokens.Text)
+            Spacer(Modifier.height(1.dp))
+            Text(desc, fontSize = 10.5.sp, color = RuneTokens.Muted)
+        }
+    }
+}
+
+@Composable
+private fun RowScope.BatchBtn(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+    val tint = if (danger) RuneTokens.Danger else RuneTokens.Text
+    Column(
+        Modifier.weight(1f).clickable { onClick() }.padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = 10.sp, color = tint)
+    }
+}
+
+@Composable
+private fun QuickItem(label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.FolderOpen, null, tint = RuneTokens.Muted, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, fontSize = 13.sp, color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun InputDialog(
+    title: String, value: String, onChange: (String) -> Unit,
+    confirm: String, onDismiss: () -> Unit, onConfirm: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -331,48 +447,4 @@ private fun InputDialog(
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirm, color = RuneTokens.Accent) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = RuneTokens.Muted) } }
     )
-}
-
-private fun listDir(path: String): List<File> =
-    File(path).listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
-
-private fun fileIcon(f: File): ImageVector {
-    val n = f.name.lowercase()
-    return when {
-        n.endsWith(".apk") -> Icons.Outlined.Android
-        n.endsWith(".zip") || n.endsWith(".7z") || n.endsWith(".rar") -> Icons.Outlined.FolderZip
-        n.endsWith(".jpg") || n.endsWith(".png") || n.endsWith(".webp") -> Icons.Outlined.Image
-        n.endsWith(".mp3") || n.endsWith(".flac") || n.endsWith(".wav") -> Icons.Outlined.MusicNote
-        n.endsWith(".mp4") || n.endsWith(".mkv") -> Icons.Outlined.Movie
-        n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".log") -> Icons.Outlined.Description
-        else -> Icons.Outlined.InsertDriveFile
-    }
-}
-
-internal fun formatSize(n: Long): String = when {
-    n >= 1L shl 30 -> String.format("%.1fG", n / (1L shl 30).toDouble())
-    n >= 1L shl 20 -> String.format("%.1fM", n / (1L shl 20).toDouble())
-    n >= 1L shl 10 -> String.format("%.0fK", n / (1L shl 10).toDouble())
-    else -> "$n B"
-}
-
-private fun dateText(ms: Long): String =
-    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
-
-private fun copyRecursive(src: File, dstDir: File): Boolean {
-    val dst = File(dstDir, src.name)
-    if (src.isDirectory) {
-        if (!dst.exists() && !dst.mkdirs()) return false
-        src.listFiles()?.forEach { if (!copyRecursive(it, dst)) return false }
-        return true
-    }
-    return try {
-        src.inputStream().use { i -> dst.outputStream().use { o -> i.copyTo(o) } }
-        true
-    } catch (_: Exception) { false }
-}
-
-private fun deleteRecursive(f: File): Boolean {
-    if (f.isDirectory) f.listFiles()?.forEach { if (!deleteRecursive(it)) return false }
-    return f.delete()
 }
