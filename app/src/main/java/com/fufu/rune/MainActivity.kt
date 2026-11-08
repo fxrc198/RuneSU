@@ -17,12 +17,14 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -50,21 +53,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 object RuneTokens {
-    val Bg = Color(0xFFF6F8FA)
+    val Bg = Color(0xFFF7F8FA)
     val Panel = Color(0xFFFFFFFF)
-    val Panel2 = Color(0xFFF2F5F8)
-    val Border = Color(0xFFEAEFF4)
-    val Text = Color(0xFF151B23)
-    val Muted = Color(0xFF6E7C8C)
-    val Accent = Color(0xFF2FB9A8)
-    val Blue = Color(0xFF5B8DEF)
-    val Amber = Color(0xFFE8A33D)
-    val Green = Color(0xFF2FBF71)
-    val Danger = Color(0xFFE5484D)
-    val Success = Color(0xFF12A05C)
+    val Panel2 = Color(0xFFF1F3F7)
+    val Border = Color(0xFFE8EBF1)
+    val Text = Color(0xFF141821)
+    val Muted = Color(0xFF6B7280)
+    val Primary = Color(0xFF4C6FFF)
+    val Warn = Color(0xFFF59E0B)
+    val Danger = Color(0xFFEF4444)
+    val Success = Color(0xFF10B981)
 }
 
 data class Snapshot(
@@ -104,13 +108,11 @@ class MainActivity : ComponentActivity() {
         detectRoot()
         setContent {
             LaunchedEffect(page, foreground) {
-                if (page == 0 && foreground) {
-                    while (true) { refresh(); delay(2500) }
-                }
+                if (page == 0 && foreground) while (true) { refresh(); delay(2500) }
             }
             MaterialTheme(
                 colorScheme = lightColorScheme(
-                    primary = RuneTokens.Accent, background = RuneTokens.Bg,
+                    primary = RuneTokens.Primary, background = RuneTokens.Bg,
                     surface = RuneTokens.Panel, onBackground = RuneTokens.Text, onSurface = RuneTokens.Text
                 )
             ) {
@@ -123,18 +125,15 @@ class MainActivity : ComponentActivity() {
                                 ) else PermissionHint { askAllFiles() }
                                 2 -> Placeholder("模块", "接入 /data/adb/modules 后显示")
                                 3 -> SettingsPage(termEnabled, radial,
-                                    onTerm = { enabled ->
-                                        termEnabled = enabled
-                                        if (!enabled && page == 4) page = 0
-                                    },
-                                    onRadial = { radial = it }
-                                )
+                                    onTerm = { enabled -> termEnabled = enabled; if (!enabled && page == 4) page = 0 },
+                                    onRadial = { radial = it })
                                 4 -> Placeholder("终端", "命令执行下一步接")
+                                5 -> WorkflowScreen()
                                 else -> Home(suPath, checked, modules, snap)
                             }
                         }
                         if (!radial) {
-                            BottomBar(termEnabled, page) { idx ->
+                            ArchBar(termEnabled, page) { idx ->
                                 if (idx == 1 && !granted) askAllFiles() else page = idx
                             }
                         }
@@ -198,6 +197,7 @@ class MainActivity : ComponentActivity() {
 private fun navEntries(term: Boolean): List<NavEntry> = buildList {
     add(NavEntry(0, Icons.Outlined.Home, "首页"))
     add(NavEntry(1, Icons.Outlined.Folder, "文件"))
+    add(NavEntry(5, Icons.Outlined.AccountTree, "任务"))
     add(NavEntry(2, Icons.Outlined.Extension, "模块"))
     if (term) add(NavEntry(4, Icons.Outlined.Terminal, "终端"))
     add(NavEntry(3, Icons.Outlined.Settings, "设置"))
@@ -242,7 +242,7 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?, snap: Snapsho
         PerfCard(snap, modules)
 
         SectionLabel("设备")
-        DeviceGrid(modules, snap)
+        DeviceCard(modules, snap)
 
         SectionLabel("安全")
         SectionCard {
@@ -250,7 +250,7 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?, snap: Snapsho
             RowDivider()
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
         }
-        Spacer(Modifier.height(90.dp))
+        Spacer(Modifier.height(96.dp))
     }
 }
 
@@ -295,11 +295,11 @@ private fun PerfCard(snap: Snapshot, modules: Int?) {
     ) {
         Column(Modifier.padding(4.dp)) {
             Row {
-                PerfCell(Icons.Outlined.Memory, "内存", snap.mem, RuneTokens.Blue, Modifier.weight(1f))
-                PerfCell(Icons.Outlined.Storage, "存储", snap.storage, RuneTokens.Amber, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.Memory, "内存", snap.mem, RuneTokens.Primary, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.Storage, "存储", snap.storage, RuneTokens.Warn, Modifier.weight(1f))
             }
             Row {
-                PerfCell(Icons.Outlined.BatteryFull, "电池", snap.battery, RuneTokens.Green, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.BatteryFull, "电池", snap.battery, RuneTokens.Success, Modifier.weight(1f))
                 ModuleCell(modules, Modifier.weight(1f))
             }
         }
@@ -338,17 +338,16 @@ private fun ModuleCell(modules: Int?, modifier: Modifier) {
     Column(modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(20.dp).background(RuneTokens.Accent.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
+                Modifier.size(20.dp).background(RuneTokens.Primary.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Accent, modifier = Modifier.size(12.dp)) }
+            ) { Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Primary, modifier = Modifier.size(12.dp)) }
             Spacer(Modifier.width(6.dp))
             Text("模块", fontSize = 10.5.sp, color = RuneTokens.Muted)
         }
         Spacer(Modifier.height(5.dp))
         Text(
-            modules?.let { "$it 个" } ?: "未接入",
-            fontSize = 17.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text,
-            maxLines = 1, overflow = TextOverflow.Ellipsis
+            modules?.let { "$it 个" } ?: "未接入", fontSize = 17.sp, fontWeight = FontWeight.Bold,
+            color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
         Spacer(Modifier.height(6.dp))
         Box(Modifier.fillMaxWidth().height(3.5.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp)))
@@ -356,7 +355,14 @@ private fun ModuleCell(modules: Int?, modifier: Modifier) {
 }
 
 @Composable
-private fun DeviceGrid(modules: Int?, snap: Snapshot) {
+private fun DeviceCard(modules: Int?, snap: Snapshot) {
+    var expanded by remember { mutableStateOf(false) }
+    var extra by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    LaunchedEffect(expanded) {
+        if (expanded && extra.isEmpty()) {
+            extra = withContext(Dispatchers.IO) { loadProps() }
+        }
+    }
     val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
     val kernel = (System.getProperty("os.version") ?: "-").substringBefore("-g")
     val cells = listOf(
@@ -367,11 +373,52 @@ private fun DeviceGrid(modules: Int?, snap: Snapshot) {
         Icons.Outlined.Fingerprint to ("指纹" to Build.FINGERPRINT),
         Icons.Outlined.Thermostat to ("温度" to (snap.temp?.let { String.format("%.1f°C", it) } ?: "—"))
     )
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         cells.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { (icon, pair) -> GridCell(icon, pair.first, pair.second, Modifier.weight(1f)) }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        Surface(
+            color = RuneTokens.Panel, shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, RuneTokens.Border),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Outlined.Info, null, tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("更多设备信息", fontSize = 12.5.sp, color = RuneTokens.Text,
+                        modifier = Modifier.weight(1f))
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                        tint = RuneTokens.Muted,
+                        modifier = Modifier.size(16.dp).graphicsLayer {
+                            rotationZ = if (expanded) 90f else 0f
+                        }
+                    )
+                }
+                AnimatedVisibility(visible = expanded) {
+                    Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 6.dp)) {
+                        if (extra.isEmpty()) {
+                            Text("读取中…", fontSize = 11.sp, color = RuneTokens.Muted)
+                        } else {
+                            extra.forEach { (label, value) ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text(label, fontSize = 11.sp, color = RuneTokens.Muted,
+                                        modifier = Modifier.width(72.dp))
+                                    Text(value, fontSize = 11.sp, color = RuneTokens.Text,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -386,7 +433,7 @@ private fun GridCell(icon: ImageVector, label: String, value: String, modifier: 
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(12.dp))
+                Icon(icon, null, tint = RuneTokens.Primary, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(5.dp))
                 Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
             }
@@ -445,13 +492,13 @@ private fun RowDivider() { HorizontalDivider(thickness = 0.7.dp, color = RuneTok
 private fun PermissionHint(onAsk: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Accent, modifier = Modifier.size(38.dp))
+        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Primary, modifier = Modifier.size(38.dp))
         Spacer(Modifier.height(12.dp))
         Text("需要「所有文件访问」权限", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
         Spacer(Modifier.height(6.dp))
         Text("用于浏览和整理文件", fontSize = 12.sp, color = RuneTokens.Muted)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Accent)) {
+        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Primary)) {
             Text("去授权")
         }
     }
@@ -475,7 +522,7 @@ private fun SettingsPage(
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text("扇形导航", fontSize = 14.sp, color = RuneTokens.Text)
-                    Text("切换为环绕式按钮导航", fontSize = 11.sp, color = RuneTokens.Muted)
+                    Text("拖动展开，松手吸附", fontSize = 11.sp, color = RuneTokens.Muted)
                 }
                 Switch(checked = radial, onCheckedChange = onRadial)
             }
@@ -504,11 +551,11 @@ private fun SettingsPage(
 
         SectionLabel("关于")
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "1.1.0")
+            InfoRow(Icons.Outlined.Info, "版本", "1.2.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
-        Spacer(Modifier.height(90.dp))
+        Spacer(Modifier.height(96.dp))
     }
 }
 
@@ -523,79 +570,76 @@ private fun Placeholder(title: String, desc: String) {
 }
 
 @Composable
-private fun BottomBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
-    val animatedWeight by animateFloatAsState(
-        targetValue = if (termEnabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 700f), label = "w"
-    )
-    val termWeight = animatedWeight.coerceIn(0.0001f, 1f)
-    val termAlpha by animateFloatAsState(
-        targetValue = if (termEnabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 600f), label = "a"
-    )
-    Surface(color = RuneTokens.Panel, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(58.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            NavItem(Icons.Outlined.Home, "首页", 0, current, onSelect)
-            NavItem(Icons.Outlined.Folder, "文件", 1, current, onSelect)
-            NavItem(Icons.Outlined.Extension, "模块", 2, current, onSelect)
-            Box(Modifier.weight(termWeight).fillMaxHeight().clipToBounds()) {
+private fun ArchBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
+    val items = navEntries(termEnabled)
+    val center = (items.size - 1) / 2f
+
+    Surface(
+        color = RuneTokens.Panel,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().height(62.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items.forEachIndexed { i, entry ->
+                val active = current == entry.id
+                val norm = if (center == 0f) 0f else (i - center) / center
+                val lift = (-7f * (1f - norm * norm)).dp
+                val extra = if (active) (-5).dp else 0.dp
                 Column(
-                    Modifier.fillMaxSize().graphicsLayer { alpha = termAlpha }.clickable { onSelect(4) },
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+                    Modifier
+                        .weight(1f)
+                        .offset(y = lift + extra)
+                        .bouncy(depth = 0.88f, damping = 0.26f, stiffness = 520f) { onSelect(entry.id) },
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Outlined.Terminal, null,
-                        tint = if (current == 4) RuneTokens.Accent else RuneTokens.Muted,
-                        modifier = Modifier.size(21.dp))
-                    Spacer(Modifier.height(3.dp))
-                    Text("终端", fontSize = 11.sp, color = if (current == 4) RuneTokens.Accent else RuneTokens.Muted)
+                    Icon(
+                        entry.icon, null,
+                        tint = if (active) RuneTokens.Primary else RuneTokens.Muted,
+                        modifier = Modifier.size(if (active) 23.dp else 21.dp)
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        entry.label, fontSize = 10.sp,
+                        color = if (active) RuneTokens.Primary else RuneTokens.Muted
+                    )
                 }
             }
-            NavItem(Icons.Outlined.Settings, "设置", 3, current, onSelect)
         }
-    }
-}
-
-@Composable
-private fun RowScope.NavItem(icon: ImageVector, label: String, idx: Int, current: Int, onSelect: (Int) -> Unit) {
-    val active = current == idx
-    val tint = if (active) RuneTokens.Accent else RuneTokens.Muted
-    Column(
-        Modifier.weight(1f).fillMaxHeight().bouncy(depth = 0.90f, damping = 0.28f, stiffness = 520f) { onSelect(idx) },
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
-    ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.height(3.dp))
-        Text(label, fontSize = 11.sp, color = tint)
     }
 }
 
 @Composable
 private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Unit) {
+    val scope = rememberCoroutineScope()
     var open by remember { mutableStateOf(false) }
-    val progress by animateFloatAsState(
-        targetValue = if (open) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 380f), label = "radial"
-    )
+    val progress = remember { Animatable(0f) }
+
+    LaunchedEffect(open) {
+        progress.animateTo(if (open) 1f else 0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val cx = maxWidth / 2
         val cy = maxHeight - 96.dp
         val radius = 104.dp
         val btn = 54.dp
+        val p = progress.value
 
-        if (open) {
+        if (p > 0.01f) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.18f * progress))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { open = false }
+                    .background(Color.Black.copy(alpha = 0.16f * p))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        open = false
+                    }
             )
         }
 
         items.forEachIndexed { i, entry ->
-            val t = ((progress - i * 0.05f) / 0.75f).coerceIn(0f, 1f)
+            val t = ((p - i * 0.05f) / 0.75f).coerceIn(0f, 1f)
             val step = if (items.size > 1) 156.0 / (items.size - 1) else 0.0
             val angle = Math.toRadians(-78.0 + i * step)
             val x = cx + radius * kotlin.math.sin(angle).toFloat()
@@ -607,11 +651,11 @@ private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Un
                     .size(btn)
                     .graphicsLayer {
                         alpha = t
-                        scaleX = 0.65f + 0.35f * t
-                        scaleY = 0.65f + 0.35f * t
+                        scaleX = 0.7f + 0.3f * t
+                        scaleY = 0.7f + 0.3f * t
                     }
-                    .background(if (active) RuneTokens.Accent else RuneTokens.Panel, CircleShape)
-                    .clickable(enabled = open) { onSelect(entry.id); open = false },
+                    .background(if (active) RuneTokens.Primary else RuneTokens.Panel, CircleShape)
+                    .clickable(enabled = p > 0.5f) { onSelect(entry.id); open = false },
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -627,12 +671,33 @@ private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Un
 
         Box(
             Modifier.offset(x = cx - 28.dp, y = cy - 28.dp).size(56.dp)
-                .graphicsLayer { rotationZ = 90f * progress }
-                .background(RuneTokens.Accent, CircleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { open = !open },
+                .graphicsLayer { rotationZ = 90f * p }
+                .background(RuneTokens.Primary, CircleShape)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { _, dy ->
+                            scope.launch {
+                                val target = (progress.value - dy / 220f).coerceIn(0f, 1f)
+                                progress.snapTo(target)
+                            }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                if (progress.value > 0.4f) { open = true; progress.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = 420f)) }
+                                else { open = false; progress.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f)) }
+                            }
+                        },
+                        onDragCancel = {
+                            scope.launch {
+                                open = progress.value > 0.4f
+                                progress.animateTo(if (open) 1f else 0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                            }
+                        }
+                    )
+                }
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    open = !open
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -643,90 +708,25 @@ private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Un
     }
 }
 
-private fun cpuLoad(): Int? {
-    val stat = cpuUsage()
-    if (stat != null) return stat
-    return try {
-        val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-        val load = File("/proc/loadavg").readText().trim().split(Regex("\\s+")).first().toDouble()
-        ((load / cores) * 100.0).toInt().coerceIn(0, 100)
-    } catch (_: Exception) { null }
+private fun loadProps(): List<Pair<String, String>> {
+    val keys = listOf(
+        "ro.product.device" to "设备代号",
+        "ro.build.id" to "构建 ID",
+        "ro.boot.slot_suffix" to "槽位",
+        "ro.build.version.security_patch" to "安全补丁",
+        "ro.soc.model" to "SoC",
+        "ro.product.board" to "主板",
+        "ro.boot.hardware" to "硬件",
+        "ro.build.type" to "构建类型"
+    )
+    return keys.map { (k, label) -> label to prop(k) }
 }
 
-private fun cpuUsage(): Int? {
-    fun read(): LongArray {
-        val line = File("/proc/stat").readLines().firstOrNull { it.startsWith("cpu ") } ?: return LongArray(8)
-        val p = line.trim().split(Regex("\\s+"))
-        return LongArray(8) { i -> p.getOrNull(i + 1)?.toLongOrNull() ?: 0L }
-    }
-    return try {
-        val a = read(); Thread.sleep(320); val b = read()
-        val idle = (b[3] + b[4]) - (a[3] + a[4])
-        val total = b.sum() - a.sum()
-        if (total <= 0) null else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
-    } catch (_: Exception) { null }
-}
+private fun prop(key: String): String = try {
+    val p = ProcessBuilder("getprop", key).redirectErrorStream(true).start()
+    val out = p.inputStream.bufferedReader().readText().trim()
+    p.waitFor()
+    out.ifEmpty { "—" }
+} catch (_: Exception) { "—" }
 
-private fun cpuModel(): String? {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        val soc = Build.SOC_MODEL
-        if (!soc.isNullOrBlank() && !soc.equals("unknown", ignoreCase = true)) return soc
-    }
-    for (key in listOf("ro.soc.model", "ro.board.platform", "ro.hardware")) {
-        try {
-            val proc = ProcessBuilder("getprop", key).redirectErrorStream(true).start()
-            val out = proc.inputStream.bufferedReader().readText().trim()
-            proc.waitFor()
-            if (out.isNotEmpty() && !out.equals("unknown", ignoreCase = true)) return out
-        } catch (_: Exception) { }
-    }
-    return try {
-        File("/proc/cpuinfo").readLines().firstOrNull { it.startsWith("Hardware") }
-            ?.substringAfter(':')?.trim()?.ifEmpty { null }
-    } catch (_: Exception) { null }
-}
-
-private fun memInfo(): Int? = try {
-    var total = 0L; var avail = 0L
-    File("/proc/meminfo").forEachLine { line ->
-        when {
-            line.startsWith("MemTotal:") -> total = line.filter { it.isDigit() }.toLongOrNull() ?: 0L
-            line.startsWith("MemAvailable:") -> avail = line.filter { it.isDigit() }.toLongOrNull() ?: 0L
-        }
-    }
-    if (total <= 0) null else ((total - avail) * 100 / total).toInt()
-} catch (_: Exception) { null }
-
-private fun storageInfo(): Int? = try {
-    val s = StatFs(Environment.getExternalStorageDirectory().absolutePath)
-    val total = s.blockCountLong * s.blockSizeLong
-    val avail = s.availableBlocksLong * s.blockSizeLong
-    if (total <= 0) null else ((total - avail) * 100 / total).toInt()
-} catch (_: Exception) { null }
-
-private fun batteryPct(ctx: Context): Int? = try {
-    val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-    val v = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    if (v in 0..100) v else null
-} catch (_: Exception) { null }
-
-private fun tempC(): Double? = try {
-    File("/sys/class/thermal/thermal_zone0/temp").readText().trim().toLong() / 1000.0
-} catch (_: Exception) { null }
-
-private fun selinuxStatus(): String {
-    try {
-        val cls = Class.forName("android.os.SELinux")
-        val m = cls.getMethod("isSELinuxEnforced")
-        val enforced = m.invoke(null) as? Boolean
-        if (enforced != null) return if (enforced) "强制执行" else "宽容模式"
-    } catch (_: Throwable) { }
-    return "不可读（需要 Root）"
-}
-
-private fun seccompStatus(): String = try {
-    val line = File("/proc/self/status").readLines().firstOrNull { it.startsWith("Seccomp:") }
-    when (line?.substringAfter(":")?.trim()) {
-        "0" -> "关闭"; "1" -> "严格模式"; "2" -> "过滤模式"; else -> "未知"
-    }
-} catch (_: Exception) { "未知" }
+private fun cpuLoad(): Int? { ... }
