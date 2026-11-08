@@ -1,8 +1,5 @@
 package com.fufu.rune
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -12,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -43,7 +39,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -154,8 +149,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 只有手感：按下缩到 .96 再 spring 弹回，圆角浅底，加一次轻震动。 */
 @Composable
-private fun Modifier.pressable(shape: Shape = RoundedCornerShape(12.dp), onClick: () -> Unit): Modifier {
+private fun Modifier.bouncy(shape: Shape = RoundedCornerShape(20.dp)): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
@@ -163,29 +159,27 @@ private fun Modifier.pressable(shape: Shape = RoundedCornerShape(12.dp), onClick
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
         animationSpec = spring(dampingRatio = 0.34f, stiffness = 700f),
-        label = "press-scale"
+        label = "scale"
     )
     val glow by animateFloatAsState(
         targetValue = if (pressed) 1f else 0f,
         animationSpec = spring(dampingRatio = 1f, stiffness = 700f),
-        label = "press-glow"
+        label = "glow"
     )
 
     return this
         .graphicsLayer { scaleX = scale; scaleY = scale }
-        .background(RuneTokens.Accent.copy(alpha = 0.07f * glow), shape)
+        .background(RuneTokens.Accent.copy(alpha = 0.06f * glow), shape)
         .clickable(interactionSource = interaction, indication = null) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onClick()
         }
 }
 
 @Composable
 private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
-    val ctx = LocalContext.current
     val storage = remember { storageInfo() }
-    val version = remember { versionName(ctx) }
     val kernel = remember { System.getProperty("os.version") ?: "-" }
+    val abi = remember { Build.SUPPORTED_ABIS.firstOrNull() ?: "-" }
     val fingerprint = remember { Build.FINGERPRINT }
     val selinux = remember { selinuxStatus() }
     val seccomp = remember { seccompStatus() }
@@ -203,71 +197,25 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
         Text("设备与 Root 状态", fontSize = 12.sp, color = RuneTokens.Muted)
 
         Spacer(Modifier.height(18.dp))
-        StatusCard(suPath, checked)
-
-        Spacer(Modifier.height(12.dp))
-        DeviceCard(suPath, checked, modules, storage) { copy(ctx, it) }
+        DeviceCard(suPath, checked, modules, storage, abi)
 
         Spacer(Modifier.height(12.dp))
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "管理器版本", version) { copy(ctx, version) }
+            InfoRow(Icons.Outlined.Info, "管理器版本", versionName())
             RowDivider()
-            InfoRow(Icons.Outlined.Memory, "内核版本", kernel) { copy(ctx, kernel) }
+            InfoRow(Icons.Outlined.Memory, "内核版本", kernel)
             RowDivider()
-            InfoRow(Icons.Outlined.Fingerprint, "系统指纹", fingerprint) { copy(ctx, fingerprint) }
+            InfoRow(Icons.Outlined.Fingerprint, "系统指纹", fingerprint)
         }
 
         Spacer(Modifier.height(12.dp))
         SectionCard {
-            InfoRow(Icons.Outlined.Security, "SELinux 状态", selinux) { copy(ctx, selinux) }
+            InfoRow(Icons.Outlined.Security, "SELinux 状态", selinux)
             RowDivider()
-            InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccomp) { copy(ctx, seccomp) }
+            InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccomp)
         }
 
         Spacer(Modifier.height(24.dp))
-    }
-}
-
-@Composable
-private fun StatusCard(suPath: String?, checked: Boolean) {
-    val ok = suPath != null
-    val color = when {
-        !checked -> RuneTokens.Muted
-        ok -> RuneTokens.Success
-        else -> RuneTokens.Danger
-    }
-    Surface(color = color.copy(alpha = 0.10f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(40.dp).background(color.copy(alpha = 0.16f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    when {
-                        !checked -> Icons.Outlined.HourglassEmpty
-                        ok -> Icons.Outlined.CheckCircle
-                        else -> Icons.Outlined.ErrorOutline
-                    },
-                    null, tint = color, modifier = Modifier.size(22.dp)
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when {
-                        !checked -> "正在检测…"
-                        ok -> "Root 已连接"
-                        else -> "未检测到 Root"
-                    },
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    if (ok) "su: $suPath" else "安装 KernelSU 后自动启用，当前仅可使用文件管理",
-                    fontSize = 12.sp, color = RuneTokens.Muted, lineHeight = 17.sp
-                )
-            }
-        }
     }
 }
 
@@ -277,10 +225,14 @@ private fun DeviceCard(
     checked: Boolean,
     modules: Int?,
     storage: Pair<Long, Long>?,
-    onValue: (String) -> Unit
+    abi: String
 ) {
-    val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
-    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+    val ok = suPath != null
+    Surface(
+        color = RuneTokens.Panel,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().bouncy()
+    ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -290,36 +242,36 @@ private fun DeviceCard(
                     Icon(Icons.Outlined.PhoneAndroid, null, tint = RuneTokens.Accent, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${Build.MANUFACTURER} ${Build.MODEL}",
-                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Android ${Build.VERSION.RELEASE} · $abi",
-                        fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    "${Build.MANUFACTURER} ${Build.MODEL}",
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 Spacer(Modifier.width(8.dp))
                 RootBadge(suPath, checked)
             }
 
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.DeveloperBoard, "架构", abi) { onValue(abi) }
-                DiCell(Icons.Outlined.SystemUpdate, "系统", "Android ${Build.VERSION.RELEASE}") {
-                    onValue("Android ${Build.VERSION.RELEASE}")
-                }
+                DiCell(Icons.Outlined.DeveloperBoard, "架构", abi)
+                DiCell(Icons.Outlined.SystemUpdate, "系统", "Android ${Build.VERSION.RELEASE}")
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-") {
-                    onValue(modules?.let { "$it 个模块" } ?: "未检测到")
-                }
-                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-") {
-                    onValue(storage?.let { formatSize(it.second) } ?: "-")
+                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-")
+                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-")
+            }
+
+            if (checked && !ok) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(5.dp).background(RuneTokens.Danger, CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "未检测到 Root · 安装 KernelSU 后自动启用",
+                        fontSize = 11.sp, color = RuneTokens.Muted
+                    )
                 }
             }
         }
@@ -327,11 +279,11 @@ private fun DeviceCard(
 }
 
 @Composable
-private fun RowScope.DiCell(icon: ImageVector, label: String, value: String, onClick: () -> Unit) {
+private fun RowScope.DiCell(icon: ImageVector, label: String, value: String) {
     Surface(
         color = RuneTokens.Panel2,
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.weight(1f).heightIn(min = 56.dp).pressable(RoundedCornerShape(10.dp)) { onClick() }
+        modifier = Modifier.weight(1f).heightIn(min = 56.dp)
     ) {
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -381,17 +333,18 @@ private fun RootBadge(suPath: String?, checked: Boolean) {
 
 @Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), content = content)
+    Surface(
+        color = RuneTokens.Panel,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().bouncy()
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), content = content)
     }
 }
 
 @Composable
-private fun InfoRow(icon: ImageVector, title: String, value: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 6.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top
-    ) {
+private fun InfoRow(icon: ImageVector, title: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
         Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(22.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -434,7 +387,7 @@ private fun BottomBar(current: Int, onSelect: (Int) -> Unit) {
                 val active = current == idx
                 val tint = if (active) RuneTokens.Accent else RuneTokens.Muted
                 Column(
-                    Modifier.weight(1f).fillMaxHeight().pressable(RoundedCornerShape(14.dp)) { onSelect(idx) },
+                    Modifier.weight(1f).fillMaxHeight().clickable { onSelect(idx) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -480,7 +433,7 @@ private fun FileBrowser(startPath: String) {
 @Composable
 private fun FileRow(f: File, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().pressable { onClick() }
+        Modifier.fillMaxWidth().clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 4.dp).height(44.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -509,15 +462,7 @@ private fun FileRow(f: File, onClick: () -> Unit) {
     }
 }
 
-private fun copy(ctx: Context, text: String) {
-    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("RuneSU", text))
-    Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
-}
-
-private fun versionName(ctx: Context): String = try {
-    ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "-"
-} catch (_: Exception) { "-" }
+private fun versionName(): String = "0.3.0"
 
 private fun selinuxStatus(): String = try {
     val v = File("/sys/fs/selinux/enforce").readText().trim()
