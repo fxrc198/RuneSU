@@ -14,7 +14,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,7 +35,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -149,30 +148,32 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 只有手感：按下缩到 .96 再 spring 弹回，圆角浅底，加一次轻震动。 */
+/**
+ * 面包手感：按下快速凹陷到 94%（不过冲），松手用低阻尼 spring 弹回，
+ * 会稍微超过 100% 再落回，像按面包。
+ */
 @Composable
-private fun Modifier.bouncy(shape: Shape = RoundedCornerShape(20.dp)): Modifier {
+private fun Modifier.bouncy(): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
+    val scale = remember { Animatable(1f) }
 
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.34f, stiffness = 700f),
-        label = "scale"
-    )
-    val glow by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 700f),
-        label = "glow"
-    )
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            scale.animateTo(0.94f, spring(dampingRatio = 1f, stiffness = 1200f))
+        } else {
+            scale.animateTo(1f, spring(dampingRatio = 0.26f, stiffness = 300f))
+        }
+    }
 
     return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
-        .background(RuneTokens.Accent.copy(alpha = 0.06f * glow), shape)
-        .clickable(interactionSource = interaction, indication = null) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        .graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
         }
+        .clickable(interactionSource = interaction, indication = null) {}
 }
 
 @Composable
@@ -183,6 +184,7 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
     val fingerprint = remember { Build.FINGERPRINT }
     val selinux = remember { selinuxStatus() }
     val seccomp = remember { seccompStatus() }
+    val version = remember { versionName() }
 
     Column(
         Modifier
@@ -201,7 +203,7 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
 
         Spacer(Modifier.height(12.dp))
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "管理器版本", versionName())
+            InfoRow(Icons.Outlined.Info, "管理器版本", version)
             RowDivider()
             InfoRow(Icons.Outlined.Memory, "内核版本", kernel)
             RowDivider()
