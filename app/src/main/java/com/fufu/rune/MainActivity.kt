@@ -75,6 +75,8 @@ data class Snapshot(
     val temp: Double? = null
 )
 
+data class StatItem(val icon: ImageVector, val value: Int, val label: String, val tint: Color)
+
 class MainActivity : ComponentActivity() {
 
     private var granted by mutableStateOf(false)
@@ -246,10 +248,10 @@ private fun Home(
     onOpen: (Int) -> Unit
 ) {
     val stats = buildList {
-        snap.cpu?.let { add(Triple(Icons.Outlined.Memory, it, "负载", RuneTokens.Accent)) }
-        snap.mem?.let { add(Triple(Icons.Outlined.DeveloperBoard, it, "内存", RuneTokens.Blue)) }
-        snap.storage?.let { add(Triple(Icons.Outlined.Storage, it, "存储", RuneTokens.Amber)) }
-        snap.battery?.let { add(Triple(Icons.Outlined.BatteryFull, it, "电池", RuneTokens.Success)) }
+        snap.cpu?.let { add(StatItem(Icons.Outlined.Memory, it, "负载", RuneTokens.Accent)) }
+        snap.mem?.let { add(StatItem(Icons.Outlined.DeveloperBoard, it, "内存", RuneTokens.Blue)) }
+        snap.storage?.let { add(StatItem(Icons.Outlined.Storage, it, "存储", RuneTokens.Amber)) }
+        snap.battery?.let { add(StatItem(Icons.Outlined.BatteryFull, it, "电池", RuneTokens.Success)) }
     }
     val info = buildList {
         add(Icons.Outlined.Code to ("内核版本" to (System.getProperty("os.version") ?: "")))
@@ -308,7 +310,7 @@ private fun StatusModuleCard(
     suPath: String?,
     checked: Boolean,
     modules: Int?,
-    stats: List<Triple<ImageVector, Int, String, Color>>,
+    stats: List<StatItem>,
     onModules: () -> Unit
 ) {
     val color = when {
@@ -368,7 +370,7 @@ private fun StatusModuleCard(
             if (stats.isNotEmpty()) {
                 RowDivider()
                 Row(Modifier.fillMaxWidth().padding(vertical = 13.dp)) {
-                    stats.forEach { (icon, value, label, tint) -> StatCell(icon, value, label, tint) }
+                    stats.forEach { StatCell(it) }
                 }
             }
         }
@@ -376,18 +378,18 @@ private fun StatusModuleCard(
 }
 
 @Composable
-private fun RowScope.StatCell(icon: ImageVector, value: Int, label: String, tint: Color) {
+private fun RowScope.StatCell(item: StatItem) {
     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(26.dp).background(tint.copy(alpha = 0.12f), RoundedCornerShape(9.dp)),
+            Modifier.size(26.dp).background(item.tint.copy(alpha = 0.12f), RoundedCornerShape(9.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(14.dp))
+            Icon(item.icon, null, tint = item.tint, modifier = Modifier.size(14.dp))
         }
         Spacer(Modifier.height(5.dp))
-        Text("$value%", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+        Text("${item.value}%", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
         Spacer(Modifier.height(1.dp))
-        Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
+        Text(item.label, fontSize = 9.5.sp, color = RuneTokens.Muted)
     }
 }
 
@@ -516,7 +518,7 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
 
         SectionLabel("关于")
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "0.8.0")
+            InfoRow(Icons.Outlined.Info, "版本", "0.9.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
@@ -682,14 +684,13 @@ private fun tempC(): Double? = try {
 } catch (_: Exception) { null }
 
 private fun selinuxStatus(): String {
-    val out = runQuiet("getenforce")
-    return when {
-        out == null -> "不可读（需要 Root）"
-        out.equals("Enforcing", true) -> "强制执行"
-        out.equals("Permissive", true) -> "宽容模式"
-        out.equals("Disabled", true) -> "已关闭"
-        else -> "不可读（需要 Root）"
-    }
+    try {
+        val cls = Class.forName("android.os.SELinux")
+        val m = cls.getMethod("isSELinuxEnforced")
+        val enforced = m.invoke(null) as? Boolean
+        if (enforced != null) return if (enforced) "强制执行" else "宽容模式"
+    } catch (_: Throwable) { }
+    return "不可读（需要 Root）"
 }
 
 private fun seccompStatus(): String = try {
@@ -701,10 +702,3 @@ private fun seccompStatus(): String = try {
         else -> "未知"
     }
 } catch (_: Exception) { "未知" }
-
-private fun runQuiet(cmd: String): String? = try {
-    val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
-    val text = p.inputStream.bufferedReader().readText().trim()
-    p.waitFor()
-    if (p.exitValue() == 0 && text.isNotEmpty() && !text.contains("denied", true)) text else null
-} catch (_: Exception) { null }
