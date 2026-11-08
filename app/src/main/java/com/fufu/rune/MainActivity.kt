@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -55,8 +56,6 @@ object RuneTokens {
     val Text = Color(0xFF16202C)
     val Muted = Color(0xFF6C7C90)
     val Accent = Color(0xFF2FB9A8)
-    val Blue = Color(0xFF5B8DEF)
-    val Amber = Color(0xFFE8A33D)
     val Danger = Color(0xFFE5484D)
     val Success = Color(0xFF12A05C)
 }
@@ -249,11 +248,11 @@ private fun Home(
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("RuneSU", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+                Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
-                    fontSize = 12.sp, color = RuneTokens.Muted,
+                    fontSize = 11.5.sp, color = RuneTokens.Muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
@@ -261,45 +260,35 @@ private fun Home(
                 Icon(
                     Icons.Outlined.Refresh, contentDescription = "刷新",
                     tint = if (refreshing) RuneTokens.Muted else RuneTokens.Accent,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(21.dp)
                 )
             }
         }
 
         Spacer(Modifier.height(12.dp))
-        RootStatus(suPath, checked)
+        StatusCard(suPath, checked)
 
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Tile("负载", snap.cpu, RuneTokens.Accent, Icons.Outlined.Memory)
-            Tile("内存", snap.mem, RuneTokens.Blue, Icons.Outlined.DeveloperBoard)
-        }
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Tile("存储", snap.storage, RuneTokens.Amber, Icons.Outlined.Storage)
-            Tile("电池", snap.battery, RuneTokens.Success, Icons.Outlined.BatteryFull)
-        }
+        StatStrip(snap)
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         SectionCard {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                QuickAction(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "未接入") { onOpen(2) }
-                QuickAction(Icons.Outlined.Person, "超级用户", "未接入") {
-                    Toast.makeText(ctx, "接入 Root 后可用", Toast.LENGTH_SHORT).show()
-                }
-                QuickAction(Icons.Outlined.Terminal, "终端", "未接入") {
-                    Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
-                }
-                QuickAction(Icons.Outlined.Description, "日志", "未接入") {
-                    Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
-                }
+            ActionRow(Icons.Outlined.Extension, "模块", modules?.let { "$it" } ?: "未接入") { onOpen(2) }
+            RowDivider()
+            ActionRow(Icons.Outlined.Person, "超级用户", "未接入") {
+                Toast.makeText(ctx, "接入 Root 后可用", Toast.LENGTH_SHORT).show()
+            }
+            RowDivider()
+            ActionRow(Icons.Outlined.Terminal, "终端", "未接入") {
+                Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
+            }
+            RowDivider()
+            ActionRow(Icons.Outlined.Description, "日志", "未接入") {
+                Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         SectionCard {
             InfoRow(Icons.Outlined.Code, "内核版本", System.getProperty("os.version") ?: "—")
             RowDivider()
@@ -310,7 +299,7 @@ private fun Home(
             InfoRow(Icons.Outlined.Thermostat, "电池温度", snap.temp?.let { String.format("%.1f °C", it) } ?: "—")
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         SectionCard {
             InfoRow(Icons.Outlined.Security, "SELinux 状态", selinuxStatus())
             RowDivider()
@@ -322,7 +311,7 @@ private fun Home(
 }
 
 @Composable
-private fun RootStatus(suPath: String?, checked: Boolean) {
+private fun StatusCard(suPath: String?, checked: Boolean) {
     val color = when {
         !checked -> RuneTokens.Muted
         suPath != null -> RuneTokens.Success
@@ -336,11 +325,11 @@ private fun RootStatus(suPath: String?, checked: Boolean) {
     val sub = if (suPath != null) suPath else "安装 KernelSU 后自动启用"
 
     Surface(
-        color = color.copy(alpha = 0.10f),
-        shape = RoundedCornerShape(18.dp),
+        color = RuneTokens.Panel,
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
@@ -356,54 +345,30 @@ private fun RootStatus(suPath: String?, checked: Boolean) {
 }
 
 @Composable
-private fun RowScope.Tile(label: String, value: Int?, color: Color, icon: ImageVector) {
+private fun StatStrip(snap: Snapshot) {
     Surface(
         color = RuneTokens.Panel,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.weight(1f).height(104.dp)
-            .bouncy(depth = 0.95f, damping = 0.28f, stiffness = 380f)
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = color, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(label, fontSize = 11.sp, color = RuneTokens.Muted)
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                value?.let { "$it%" } ?: "—",
-                fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text
-            )
-            Spacer(Modifier.height(8.dp))
-            Box(
-                Modifier.fillMaxWidth().height(4.dp)
-                    .background(RuneTokens.Panel2, RoundedCornerShape(2.dp))
-            ) {
-                Box(
-                    Modifier.fillMaxWidth(((value ?: 0) / 100f).coerceIn(0f, 1f))
-                        .height(4.dp).background(color, RoundedCornerShape(2.dp))
-                )
-            }
+        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+            Stat(snap.cpu, "负载")
+            Stat(snap.mem, "内存")
+            Stat(snap.storage, "存储")
+            Stat(snap.battery, "电池")
         }
     }
 }
 
 @Composable
-private fun RowScope.QuickAction(icon: ImageVector, label: String, sub: String, onClick: () -> Unit) {
-    Column(
-        Modifier.weight(1f).bouncy(depth = 0.90f, damping = 0.26f, stiffness = 500f) { onClick() },
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            Modifier.size(46.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(21.dp))
-        }
-        Spacer(Modifier.height(7.dp))
-        Text(label, fontSize = 11.5.sp, color = RuneTokens.Text)
-        Spacer(Modifier.height(1.dp))
-        Text(sub, fontSize = 9.5.sp, color = RuneTokens.Muted)
+private fun RowScope.Stat(value: Int?, label: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value?.let { "$it%" } ?: "—",
+            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = 10.sp, color = RuneTokens.Muted)
     }
 }
 
@@ -414,19 +379,42 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
         shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.36f, stiffness = 450f)
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), content = content)
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 2.dp), content = content)
+    }
+}
+
+@Composable
+private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 4.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(32.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(17.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(title, fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+        Text(badge, fontSize = 12.sp, color = RuneTokens.Muted)
+        Spacer(Modifier.width(4.dp))
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+            tint = RuneTokens.Muted, modifier = Modifier.size(18.dp)
+        )
     }
 }
 
 @Composable
 private fun InfoRow(icon: ImageVector, title: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
-        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(21.dp))
+        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(20.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
+            Text(title, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
             Spacer(Modifier.height(3.dp))
-            Text(value, fontSize = 12.5.sp, color = RuneTokens.Muted, lineHeight = 18.sp)
+            Text(value, fontSize = 12.sp, color = RuneTokens.Muted, lineHeight = 17.sp)
         }
     }
 }
@@ -509,11 +497,25 @@ private fun cpuUsage(): Int? {
     }
 }
 
-private fun cpuModel(): String? = try {
-    File("/proc/cpuinfo").readLines()
-        .firstOrNull { it.startsWith("Hardware") }
-        ?.substringAfter(':')?.trim()?.ifEmpty { null }
-} catch (_: Exception) { null }
+private fun cpuModel(): String? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val soc = Build.SOC_MODEL
+        if (!soc.isNullOrBlank() && !soc.equals("unknown", ignoreCase = true)) return soc
+    }
+    for (key in listOf("ro.soc.model", "ro.board.platform", "ro.hardware")) {
+        try {
+            val proc = ProcessBuilder("getprop", key).redirectErrorStream(true).start()
+            val out = proc.inputStream.bufferedReader().readText().trim()
+            proc.waitFor()
+            if (out.isNotEmpty() && !out.equals("unknown", ignoreCase = true)) return out
+        } catch (_: Exception) { }
+    }
+    return try {
+        File("/proc/cpuinfo").readLines()
+            .firstOrNull { it.startsWith("Hardware") }
+            ?.substringAfter(':')?.trim()?.ifEmpty { null }
+    } catch (_: Exception) { null }
+}
 
 private fun memInfo(): Pair<Int, String>? = try {
     val map = File("/proc/meminfo").readLines().mapNotNull { line ->
