@@ -1,5 +1,8 @@
 package com.fufu.rune
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -10,6 +13,7 @@ import android.os.Looper
 import android.os.StatFs
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,15 +44,15 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 object RuneTokens {
-    val Bg = Color(0xFF0D1017)
-    val Panel = Color(0xFF151A24)
-    val Panel2 = Color(0xFF1B2230)
-    val Border = Color(0xFF262E3D)
-    val Text = Color(0xFFDBE2EF)
-    val Muted = Color(0xFF8494AD)
-    val Accent = Color(0xFF7C6CF0)
-    val Danger = Color(0xFFFF5C5C)
-    val Success = Color(0xFF37C978)
+    val Bg = Color(0xFFF5F8FB)
+    val Panel = Color(0xFFFFFFFF)
+    val Panel2 = Color(0xFFEDF2F7)
+    val Border = Color(0xFFE1E8F0)
+    val Text = Color(0xFF16202C)
+    val Muted = Color(0xFF6C7C90)
+    val Accent = Color(0xFF2FB9A8)
+    val Danger = Color(0xFFE5484D)
+    val Success = Color(0xFF12A05C)
 }
 
 class MainActivity : ComponentActivity() {
@@ -64,11 +69,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+            )
+        )
         refreshGrant()
         detectRoot()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = RuneTokens.Accent)) {
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = RuneTokens.Accent,
+                    background = RuneTokens.Bg,
+                    surface = RuneTokens.Panel,
+                    onBackground = RuneTokens.Text,
+                    onSurface = RuneTokens.Text
+                )
+            ) {
                 Box(Modifier.fillMaxSize().background(RuneTokens.Bg)) {
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f)) {
@@ -128,30 +148,45 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
     val storage = remember { storageInfo() }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 14.dp)
-    ) {
-        Spacer(Modifier.height(10.dp))
-        Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
-        Spacer(Modifier.height(2.dp))
-        Text("设备与 Root 状态", fontSize = 12.sp, color = RuneTokens.Muted)
+    var detail by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-        Spacer(Modifier.height(14.dp))
-        DeviceCard(suPath, checked, modules, storage)
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp)
+        ) {
+            Spacer(Modifier.height(10.dp))
+            Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+            Spacer(Modifier.height(2.dp))
+            Text("设备与 Root 状态", fontSize = 12.sp, color = RuneTokens.Muted)
 
-        Spacer(Modifier.height(10.dp))
-        StorageCard(storage)
+            Spacer(Modifier.height(14.dp))
+            DeviceCard(suPath, checked, modules, storage) { detail = it }
 
-        Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(10.dp))
+            StorageCard(storage)
+
+            Spacer(Modifier.height(24.dp))
+        }
+
+        detail?.let { d -> DetailSheet(d.first, d.second) { detail = null } }
     }
 }
 
 @Composable
-private fun DeviceCard(suPath: String?, checked: Boolean, modules: Int?, storage: Pair<Long, Long>?) {
+private fun DeviceCard(
+    suPath: String?,
+    checked: Boolean,
+    modules: Int?,
+    storage: Pair<Long, Long>?,
+    onDetail: (Pair<String, String>) -> Unit
+) {
+    val kernel = System.getProperty("os.version") ?: "-"
+    val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
+
     Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -165,12 +200,12 @@ private fun DeviceCard(suPath: String?, checked: Boolean, modules: Int?, storage
                 Column(Modifier.weight(1f)) {
                     Text(
                         "${Build.MANUFACTURER} ${Build.MODEL}",
-                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                        color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "Android ${Build.VERSION.RELEASE} · ${Build.SUPPORTED_ABIS.firstOrNull() ?: "-"}",
+                        "Android ${Build.VERSION.RELEASE} · $abi",
                         fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -180,26 +215,33 @@ private fun DeviceCard(suPath: String?, checked: Boolean, modules: Int?, storage
 
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.Memory, "内核", System.getProperty("os.version") ?: "-")
-                DiCell(Icons.Outlined.DeveloperBoard, "架构", Build.SUPPORTED_ABIS.firstOrNull() ?: "-")
+                DiCell(Icons.Outlined.Memory, "内核", kernel) { onDetail("内核" to kernel) }
+                DiCell(Icons.Outlined.DeveloperBoard, "架构", abi) { onDetail("架构" to abi) }
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-")
-                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-")
+                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-") {
+                    onDetail("模块" to (modules?.let { "$it 个模块" } ?: "未检测到"))
+                }
+                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-") {
+                    onDetail("可用存储" to (storage?.let { formatSize(it.second) } ?: "-"))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RowScope.DiCell(icon: ImageVector, label: String, value: String) {
+private fun RowScope.DiCell(icon: ImageVector, label: String, value: String, onClick: () -> Unit) {
     Surface(
         color = RuneTokens.Panel2,
         shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.weight(1f).height(52.dp)
+        modifier = Modifier.weight(1f).heightIn(min = 56.dp).clickable { onClick() }
     ) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
                 Modifier.size(28.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
@@ -207,10 +249,13 @@ private fun RowScope.DiCell(icon: ImageVector, label: String, value: String) {
                 Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.width(7.dp))
-            Column {
-                Text(label, fontSize = 10.sp, color = RuneTokens.Muted)
+            Column(Modifier.weight(1f)) {
+                Text(label, fontSize = 10.sp, lineHeight = 13.sp, color = RuneTokens.Muted)
                 Spacer(Modifier.height(1.dp))
-                Text(value, fontSize = 12.sp, color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    value, fontSize = 12.sp, lineHeight = 15.sp, color = RuneTokens.Text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -262,6 +307,31 @@ private fun StorageCard(storage: Pair<Long, Long>?) {
                     Modifier.fillMaxWidth(ratio.coerceIn(0f, 1f)).height(6.dp)
                         .background(RuneTokens.Accent, RoundedCornerShape(4.dp))
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailSheet(title: String, value: String, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = RuneTokens.Panel) {
+        Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
+            Text(title, fontSize = 12.sp, color = RuneTokens.Muted)
+            Spacer(Modifier.height(8.dp))
+            Text(value, fontSize = 15.sp, color = RuneTokens.Text, lineHeight = 21.sp)
+            Spacer(Modifier.height(18.dp))
+            Row {
+                Button(
+                    onClick = {
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("RuneSU", value))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Accent)
+                ) { Text("复制") }
+                Spacer(Modifier.width(10.dp))
+                TextButton(onClick = onDismiss) { Text("关闭", color = RuneTokens.Muted) }
             }
         }
     }
@@ -323,9 +393,7 @@ private fun FileBrowser(startPath: String) {
                 IconButton(onClick = {
                     val p = File(path).parentFile
                     if (p != null) path = p.absolutePath
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上级")
-                }
+                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上级") }
             },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = RuneTokens.Panel,
@@ -334,9 +402,7 @@ private fun FileBrowser(startPath: String) {
             )
         )
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-            items(entries) { f ->
-                FileRow(f) { if (f.isDirectory) path = f.absolutePath }
-            }
+            items(entries) { f -> FileRow(f) { if (f.isDirectory) path = f.absolutePath } }
         }
     }
 }
