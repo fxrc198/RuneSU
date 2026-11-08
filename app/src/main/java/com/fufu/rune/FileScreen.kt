@@ -11,7 +11,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -20,9 +22,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,11 +89,10 @@ fun FileScreen(rootPath: String) {
                 modifier = Modifier.weight(1f), path = left, tick = tick, sort = sortL,
                 multi = multiL, selection = selL,
                 onSort = { sortL = nextSort(sortL) },
-                onMulti = {
-                    if (multiL) exitMulti(0) else { multiL = true; selL = emptySet() }
-                },
+                onMulti = { if (multiL) exitMulti(0) else { multiL = true; selL = emptySet() } },
                 onPath = { left = it; exitMulti(0) },
                 onToggle = { selL = toggle(selL, it) },
+                onDragSelect = { selL = selL + it },
                 onMenu = { menuFor = it; menuPane = 0 },
                 onNew = { newPane = 0; input = "" }
             )
@@ -97,11 +101,10 @@ fun FileScreen(rootPath: String) {
                 modifier = Modifier.weight(1f), path = right, tick = tick, sort = sortR,
                 multi = multiR, selection = selR,
                 onSort = { sortR = nextSort(sortR) },
-                onMulti = {
-                    if (multiR) exitMulti(1) else { multiR = true; selR = emptySet() }
-                },
+                onMulti = { if (multiR) exitMulti(1) else { multiR = true; selR = emptySet() } },
                 onPath = { right = it; exitMulti(1) },
                 onToggle = { selR = toggle(selR, it) },
+                onDragSelect = { selR = selR + it },
                 onMenu = { menuFor = it; menuPane = 1 },
                 onNew = { newPane = 1; input = "" }
             )
@@ -127,8 +130,9 @@ fun FileScreen(rootPath: String) {
                     }
                     BatchBtn(Icons.Outlined.Delete, "删除", danger = true) { deleteFor = files }
                     BatchBtn(Icons.Outlined.SelectAll, "全选") {
-                        val all = listDir(if (pane == 0) left else right, if (pane == 0) sortL else sortR)
-                            .map { it.absolutePath }.toSet()
+                        val dir = if (pane == 0) left else right
+                        val s = if (pane == 0) sortL else sortR
+                        val all = listDir(dir, s).map { it.absolutePath }.toSet()
                         if (pane == 0) selL = all else selR = all
                     }
                     BatchBtn(Icons.Outlined.Close, "取消") { exitMulti(pane) }
@@ -237,6 +241,11 @@ private fun nextSort(s: SortBy): SortBy = when (s) {
 private fun toggle(set: Set<String>, path: String): Set<String> =
     if (set.contains(path)) set - path else set + path
 
+private fun indexAt(state: LazyListState, y: Float): Int {
+    val info = state.layoutInfo
+    return info.visibleItemsInfo.firstOrNull { y >= it.offset && y < it.offset + it.size }?.index ?: -1
+}
+
 @Composable
 private fun DirPane(
     modifier: Modifier,
@@ -249,11 +258,13 @@ private fun DirPane(
     onMulti: () -> Unit,
     onPath: (String) -> Unit,
     onToggle: (String) -> Unit,
+    onDragSelect: (String) -> Unit,
     onMenu: (File) -> Unit,
     onNew: () -> Unit
 ) {
     val entries = remember(path, tick, sort) { listDir(path, sort) }
     val parent = File(path).parentFile
+    val listState = rememberLazyListState()
 
     Column(modifier.fillMaxHeight()) {
         Row(
@@ -276,19 +287,36 @@ private fun DirPane(
                     tint = RuneTokens.Muted, modifier = Modifier.size(14.dp))
             }
             IconButton(onClick = onMulti, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    if (multi) Icons.Outlined.Close else Icons.Outlined.SelectAll,
+                Icon(if (multi) Icons.Outlined.Close else Icons.Outlined.SelectAll,
                     contentDescription = "多选",
-                    tint = if (multi) RuneTokens.Accent else RuneTokens.Muted,
-                    modifier = Modifier.size(15.dp)
-                )
+                    tint = if (multi) RuneTokens.Primary else RuneTokens.Muted,
+                    modifier = Modifier.size(15.dp))
             }
             IconButton(onClick = onNew, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建",
-                    tint = RuneTokens.Accent, modifier = Modifier.size(15.dp))
+                    tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().pointerInput(multi, entries) {
+                if (!multi) return@pointerInput
+                awaitPointerEventScope {
+                    var last: Offset? = null
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.pressed } ?: continue
+                        val pos = change.position
+                        val prev = last
+                        if (prev != null && (pos - prev).getDistance() > 8f) {
+                            val idx = indexAt(listState, pos.y)
+                            entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
+                        }
+                        last = pos
+                    }
+                }
+            }
+        ) {
             items(entries, key = { it.absolutePath }) { f ->
                 MiniRow(
                     file = f,
@@ -333,7 +361,7 @@ private fun MiniRow(
                 onLongClick = onLong
             )
             .background(
-                if (selected) RuneTokens.Accent.copy(alpha = 0.12f) else Color.Transparent,
+                if (selected) RuneTokens.Primary.copy(alpha = 0.12f) else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
             .padding(horizontal = 8.dp, vertical = 7.dp),
@@ -341,17 +369,17 @@ private fun MiniRow(
     ) {
         Box(
             Modifier.size(26.dp).background(
-                if (file.isDirectory) RuneTokens.Accent.copy(alpha = 0.12f) else RuneTokens.Panel2,
+                if (file.isDirectory) RuneTokens.Primary.copy(alpha = 0.12f) else RuneTokens.Panel2,
                 RoundedCornerShape(7.dp)
             ),
             contentAlignment = Alignment.Center
         ) {
             if (multi && selected) {
-                Icon(Icons.Outlined.Check, null, tint = RuneTokens.Accent, modifier = Modifier.size(15.dp))
+                Icon(Icons.Outlined.Check, null, tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
             } else {
                 Icon(
                     if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file), null,
-                    tint = if (file.isDirectory) RuneTokens.Accent else RuneTokens.Muted,
+                    tint = if (file.isDirectory) RuneTokens.Primary else RuneTokens.Muted,
                     modifier = Modifier.size(15.dp)
                 )
             }
@@ -367,15 +395,10 @@ private fun MiniRow(
         }
         if (multi) {
             Box(
-                Modifier.size(18.dp)
-                    .background(
-                        if (selected) RuneTokens.Accent else Color.Transparent,
-                        RoundedCornerShape(9.dp)
-                    )
-                    .then(
-                        if (!selected) Modifier.background(RuneTokens.Panel2, RoundedCornerShape(9.dp))
-                        else Modifier
-                    ),
+                Modifier.size(18.dp).background(
+                    if (selected) RuneTokens.Primary else RuneTokens.Panel2,
+                    RoundedCornerShape(9.dp)
+                ),
                 contentAlignment = Alignment.Center
             ) {
                 if (selected) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
@@ -404,8 +427,8 @@ private fun FileActionDialog(
                 Text(file.absolutePath, fontSize = 10.5.sp, color = RuneTokens.Muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(12.dp))
-                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", RuneTokens.Accent, onCopy)
-                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", RuneTokens.Accent, onMove)
+                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", RuneTokens.Primary, onCopy)
+                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", RuneTokens.Primary, onMove)
                 DlgAction(Icons.Outlined.FolderZip, "压缩", "打包为 ${file.name}.zip", RuneTokens.Muted, onZip)
                 onUnzip?.let { DlgAction(Icons.Outlined.Unarchive, "解压", "解压到当前目录", RuneTokens.Muted, it) }
                 DlgAction(Icons.Outlined.Edit, "重命名", "修改名称", RuneTokens.Muted, onRename)
@@ -477,12 +500,12 @@ private fun InputDialog(
             OutlinedTextField(
                 value = value, onValueChange = onChange, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = RuneTokens.Accent,
+                    focusedBorderColor = RuneTokens.Primary,
                     unfocusedBorderColor = RuneTokens.Border
                 )
             )
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirm, color = RuneTokens.Accent) } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirm, color = RuneTokens.Primary) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = RuneTokens.Muted) } }
     )
 }
