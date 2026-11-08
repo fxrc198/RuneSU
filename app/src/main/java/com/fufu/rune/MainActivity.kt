@@ -20,21 +20,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -53,9 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 
@@ -74,9 +65,7 @@ object RuneTokens {
 data class Snapshot(
     val cpu: Int? = null,
     val mem: Int? = null,
-    val memText: String? = null,
     val storage: Int? = null,
-    val storageText: String? = null,
     val battery: Int? = null,
     val temp: Double? = null
 )
@@ -97,15 +86,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { refreshGrant() }
 
-    override fun onResume() {
-        super.onResume()
-        foreground = true
-    }
-
-    override fun onPause() {
-        super.onPause()
-        foreground = false
-    }
+    override fun onResume() { super.onResume(); foreground = true }
+    override fun onPause() { super.onPause(); foreground = false }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -173,19 +155,12 @@ class MainActivity : ComponentActivity() {
         refreshing = true
         val ctx = applicationContext
         Thread {
-            val cpu = cpuLoad()
-            val mem = memInfo()
-            val st = storageInfo()
-            val bat = batteryPct(ctx)
-            val temp = tempC()
             val result = Snapshot(
-                cpu = cpu,
-                mem = mem?.first,
-                memText = mem?.second,
-                storage = st?.first,
-                storageText = st?.second,
-                battery = bat,
-                temp = temp
+                cpu = cpuLoad(),
+                mem = memInfo(),
+                storage = storageInfo(),
+                battery = batteryPct(ctx),
+                temp = tempC()
             )
             Handler(Looper.getMainLooper()).post {
                 snap = result
@@ -253,10 +228,7 @@ private fun Modifier.bouncy(
     }
 
     return this
-        .graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
-        }
+        .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
         .clickable(interactionSource = interaction, indication = null) { onClick?.invoke() }
 }
 
@@ -269,10 +241,10 @@ private fun Home(
     onOpen: (Int) -> Unit
 ) {
     val stats = buildList {
-        snap.cpu?.let { add(it to "负载") }
-        snap.mem?.let { add(it to "内存") }
-        snap.storage?.let { add(it to "存储") }
-        snap.battery?.let { add(it to "电池") }
+        snap.cpu?.let { add(Triple(Icons.Outlined.Memory, it, "负载")) }
+        snap.mem?.let { add(Triple(Icons.Outlined.DeveloperBoard, it, "内存")) }
+        snap.storage?.let { add(Triple(Icons.Outlined.Storage, it, "存储")) }
+        snap.battery?.let { add(Triple(Icons.Outlined.BatteryFull, it, "电池")) }
     }
     val info = buildList {
         add(Icons.Outlined.Code to ("内核版本" to (System.getProperty("os.version") ?: "")))
@@ -288,7 +260,7 @@ private fun Home(
             .statusBarsPadding()
             .padding(horizontal = 14.dp)
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
         Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
         Spacer(Modifier.height(2.dp))
         Text(
@@ -297,25 +269,14 @@ private fun Home(
             maxLines = 1, overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(Modifier.height(14.dp))
-        StatusCard(suPath, checked, modules) { onOpen(2) }
+        Spacer(Modifier.height(12.dp))
+        StatusModuleCard(suPath, checked, modules, stats) { onOpen(2) }
 
-        if (stats.isNotEmpty()) {
-            SectionLabel("状态")
-            SectionCard {
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
-                    stats.forEach { (value, label) -> Stat(value, label) }
-                }
-            }
-        }
-
-        if (info.isNotEmpty()) {
-            SectionLabel("系统")
-            SectionCard {
-                info.forEachIndexed { index, entry ->
-                    if (index > 0) RowDivider()
-                    InfoRow(entry.first, entry.second.first, entry.second.second)
-                }
+        SectionLabel("系统")
+        SectionCard {
+            info.forEachIndexed { index, entry ->
+                if (index > 0) RowDivider()
+                InfoRow(entry.first, entry.second.first, entry.second.second)
             }
         }
 
@@ -326,15 +287,16 @@ private fun Home(
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
     }
 }
 
 @Composable
-private fun StatusCard(
+private fun StatusModuleCard(
     suPath: String?,
     checked: Boolean,
     modules: Int?,
+    stats: List<Triple<ImageVector, Int, String>>,
     onModules: () -> Unit
 ) {
     val color = when {
@@ -352,45 +314,62 @@ private fun StatusCard(
     Surface(
         color = RuneTokens.Panel,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.4f, stiffness = 500f)
     ) {
         Column {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(40.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                    Modifier.size(38.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(11.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         if (suPath != null) Icons.Outlined.VerifiedUser else Icons.Outlined.GppBad,
-                        null, tint = color, modifier = Modifier.size(21.dp)
+                        null, tint = color, modifier = Modifier.size(20.dp)
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
-                    Spacer(Modifier.height(3.dp))
+                    Text(title, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        sub, fontSize = 12.sp, color = RuneTokens.Muted,
+                        sub, fontSize = 11.5.sp, color = RuneTokens.Muted,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
             RowDivider()
             Row(
-                Modifier.fillMaxWidth().clickable { onModules() }.padding(horizontal = 16.dp, vertical = 14.dp),
+                Modifier.fillMaxWidth().clickable { onModules() }.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Accent, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Accent, modifier = Modifier.size(19.dp))
                 Spacer(Modifier.width(12.dp))
-                Text("模块", fontSize = 14.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+                Text("模块", fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
                 Text(modules?.let { "$it 个" } ?: "未接入", fontSize = 12.sp, color = RuneTokens.Muted)
                 Spacer(Modifier.width(2.dp))
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                    tint = RuneTokens.Muted, modifier = Modifier.size(17.dp)
+                    tint = RuneTokens.Muted, modifier = Modifier.size(16.dp)
                 )
             }
+            if (stats.isNotEmpty()) {
+                RowDivider()
+                Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                    stats.forEach { (icon, value, label) -> StatCell(icon, value, label) }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun RowScope.StatCell(icon: ImageVector, value: Int, label: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = RuneTokens.Accent.copy(alpha = 0.85f), modifier = Modifier.size(13.dp))
+        Spacer(Modifier.height(3.dp))
+        Text("$value%", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+        Spacer(Modifier.height(1.dp))
+        Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
     }
 }
 
@@ -399,17 +378,8 @@ private fun SectionLabel(text: String) {
     Text(
         text,
         fontSize = 11.sp, color = RuneTokens.Muted,
-        modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp)
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp)
     )
-}
-
-@Composable
-private fun RowScope.Stat(value: Int, label: String) {
-    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("$value%", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
-        Spacer(Modifier.height(2.dp))
-        Text(label, fontSize = 10.sp, color = RuneTokens.Muted)
-    }
 }
 
 @Composable
@@ -417,7 +387,7 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         color = RuneTokens.Panel,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.36f, stiffness = 450f)
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.36f, stiffness = 450f)
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 2.dp), content = content)
     }
@@ -426,35 +396,35 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 4.dp, vertical = 15.dp),
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 4.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(32.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
+            Modifier.size(30.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(17.dp))
+            Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(title, fontSize = 14.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+        Text(title, fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
         Text(badge, fontSize = 12.sp, color = RuneTokens.Muted)
         Spacer(Modifier.width(2.dp))
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-            tint = RuneTokens.Muted, modifier = Modifier.size(17.dp)
+            tint = RuneTokens.Muted, modifier = Modifier.size(16.dp)
         )
     }
 }
 
 @Composable
 private fun InfoRow(icon: ImageVector, title: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.Top) {
-        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(20.dp))
-        Spacer(Modifier.width(14.dp))
+    Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.Top) {
+        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(19.dp))
+        Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
-            Spacer(Modifier.height(3.dp))
-            Text(value, fontSize = 12.sp, color = RuneTokens.Muted, lineHeight = 17.sp)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
+            Spacer(Modifier.height(2.dp))
+            Text(value, fontSize = 11.5.sp, color = RuneTokens.Muted, lineHeight = 16.sp)
         }
     }
 }
@@ -471,293 +441,17 @@ private fun PermissionHint(onAsk: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Accent, modifier = Modifier.size(40.dp))
+        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Accent, modifier = Modifier.size(38.dp))
         Spacer(Modifier.height(12.dp))
         Text("需要「所有文件访问」权限", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
         Spacer(Modifier.height(6.dp))
-        Text("用于浏览和整理 /sdcard", fontSize = 12.sp, color = RuneTokens.Muted)
+        Text("用于浏览和整理文件", fontSize = 12.sp, color = RuneTokens.Muted)
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onAsk,
             colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Accent)
         ) { Text("去授权") }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-private fun FileScreen(rootPath: String) {
-    val ctx = LocalContext.current
-    var path by remember { mutableStateOf(rootPath) }
-    var tick by remember { mutableStateOf(0) }
-    var clip by remember { mutableStateOf<File?>(null) }
-    var clipCut by remember { mutableStateOf(false) }
-    var menuFor by remember { mutableStateOf<File?>(null) }
-    var renameFor by remember { mutableStateOf<File?>(null) }
-    var deleteFor by remember { mutableStateOf<File?>(null) }
-    var newFolder by remember { mutableStateOf(false) }
-    var input by remember { mutableStateOf("") }
-
-    val entries = remember(path, tick) { listDir(path) }
-    val parent = File(path).parentFile
-
-    fun runOp(action: () -> String?) {
-        Thread {
-            val msg = try { action() } catch (e: Exception) { "失败：${e.message}" }
-            Handler(Looper.getMainLooper()).post {
-                tick++
-                msg?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show() }
-            }
-        }.start()
-    }
-
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { parent?.let { path = it.absolutePath } }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上级",
-                    tint = if (parent != null) RuneTokens.Text else RuneTokens.Muted.copy(alpha = 0.4f)
-                )
-            }
-            Text(
-                path, fontSize = 11.5.sp, color = RuneTokens.Muted,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = { input = ""; newFolder = true }) {
-                Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹", tint = RuneTokens.Accent)
-            }
-        }
-
-        if (clip != null) {
-            Surface(color = RuneTokens.Accent.copy(alpha = 0.10f), modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "已${if (clipCut) "剪切" else "复制"}：${clip!!.name}",
-                        fontSize = 11.5.sp, color = RuneTokens.Text,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = {
-                        val src = clip!!
-                        val cut = clipCut
-                        runOp {
-                            val ok = if (cut) {
-                                val dst = File(path, src.name)
-                                if (src.absolutePath == dst.absolutePath) false else src.renameTo(dst)
-                            } else copyRecursive(src, File(path))
-                            if (ok) "已${if (cut) "移动" else "复制"}" else "操作失败"
-                        }
-                        clip = null
-                    }) { Text("粘贴", color = RuneTokens.Accent) }
-                    TextButton(onClick = { clip = null }) { Text("取消", color = RuneTokens.Muted) }
-                }
-            }
-        }
-
-        LazyColumn(Modifier.fillMaxSize().weight(1f)) {
-            items(entries, key = { it.absolutePath }) { f ->
-                FileRow(
-                    file = f,
-                    onClick = { if (f.isDirectory) path = f.absolutePath },
-                    onLong = { menuFor = f }
-                )
-            }
-            item { Spacer(Modifier.height(24.dp)) }
-        }
-    }
-
-    menuFor?.let { target ->
-        ModalBottomSheet(onDismissRequest = { menuFor = null }, containerColor = RuneTokens.Panel) {
-            Column(Modifier.padding(bottom = 24.dp)) {
-                Text(
-                    target.name, fontSize = 14.sp, color = RuneTokens.Text, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    target.absolutePath, fontSize = 11.sp, color = RuneTokens.Muted,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                SheetItem(Icons.Outlined.ContentCopy, "复制") {
-                    clip = target; clipCut = false; menuFor = null
-                }
-                SheetItem(Icons.Outlined.DriveFileMove, "移动") {
-                    clip = target; clipCut = true; menuFor = null
-                }
-                SheetItem(Icons.Outlined.Edit, "重命名") {
-                    input = target.name; renameFor = target; menuFor = null
-                }
-                SheetItem(Icons.Outlined.Delete, "删除", danger = true) {
-                    deleteFor = target; menuFor = null
-                }
-            }
-        }
-    }
-
-    if (newFolder) {
-        InputDialog(
-            title = "新建文件夹",
-            value = input,
-            onChange = { input = it },
-            confirm = "创建",
-            onDismiss = { newFolder = false },
-            onConfirm = {
-                val name = input.trim()
-                newFolder = false
-                if (name.isNotEmpty()) {
-                    runOp {
-                        val ok = File(path, name).mkdirs()
-                        if (ok) "已创建" else "创建失败"
-                    }
-                }
-            }
-        )
-    }
-
-    renameFor?.let { target ->
-        InputDialog(
-            title = "重命名",
-            value = input,
-            onChange = { input = it },
-            confirm = "确定",
-            onDismiss = { renameFor = null },
-            onConfirm = {
-                val name = input.trim()
-                renameFor = null
-                if (name.isNotEmpty()) {
-                    runOp {
-                        val ok = target.renameTo(File(target.parentFile, name))
-                        if (ok) "已重命名" else "重命名失败"
-                    }
-                }
-            }
-        )
-    }
-
-    deleteFor?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteFor = null },
-            title = { Text("删除") },
-            text = { Text("确定删除「${target.name}」吗？此操作不可恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    deleteFor = null
-                    runOp {
-                        val ok = deleteRecursive(target)
-                        if (ok) "已删除" else "删除失败"
-                    }
-                }) { Text("删除", color = RuneTokens.Danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteFor = null }) { Text("取消", color = RuneTokens.Muted) }
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun FileRow(file: File, onClick: () -> Unit, onLong: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick,
-                onLongClick = onLong
-            )
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier.size(34.dp).background(
-                if (file.isDirectory) RuneTokens.Accent.copy(alpha = 0.12f) else RuneTokens.Panel2,
-                RoundedCornerShape(9.dp)
-            ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file),
-                null,
-                tint = if (file.isDirectory) RuneTokens.Accent else RuneTokens.Muted,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                file.name, fontSize = 13.5.sp, color = RuneTokens.Text,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                if (file.isDirectory) dateText(file.lastModified())
-                else "${formatSize(file.length())} · ${dateText(file.lastModified())}",
-                fontSize = 10.5.sp, color = RuneTokens.Muted
-            )
-        }
-    }
-}
-
-@Composable
-private fun SheetItem(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            icon, null,
-            tint = if (danger) RuneTokens.Danger else RuneTokens.Muted,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(Modifier.width(14.dp))
-        Text(
-            label, fontSize = 14.sp,
-            color = if (danger) RuneTokens.Danger else RuneTokens.Text
-        )
-    }
-}
-
-@Composable
-private fun InputDialog(
-    title: String,
-    value: String,
-    onChange: (String) -> Unit,
-    confirm: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = onChange,
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = RuneTokens.Accent,
-                    unfocusedBorderColor = RuneTokens.Border
-                )
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirm, color = RuneTokens.Accent) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", color = RuneTokens.Muted) }
-        }
-    )
 }
 
 @Composable
@@ -770,24 +464,24 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
             .statusBarsPadding()
             .padding(horizontal = 14.dp)
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
         Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
 
         SectionLabel("功能")
         SectionCard {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    Modifier.size(32.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
+                    Modifier.size(30.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Accent, modifier = Modifier.size(17.dp))
+                    Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("终端", fontSize = 14.5.sp, color = RuneTokens.Text)
+                    Text("终端", fontSize = 14.sp, color = RuneTokens.Text)
                     Text("开启后导航栏显示终端", fontSize = 11.sp, color = RuneTokens.Muted)
                 }
                 Switch(checked = termEnabled, onCheckedChange = onTerm)
@@ -800,12 +494,12 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
 
         SectionLabel("关于")
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "0.6.0")
+            InfoRow(Icons.Outlined.Info, "版本", "0.7.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
     }
 }
 
@@ -821,14 +515,15 @@ private fun Placeholder(title: String, desc: String) {
 
 @Composable
 private fun BottomBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
-    val termWeight by animateFloatAsState(
-        targetValue = if (termEnabled) 1f else 0.0001f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 700f),
+    val animatedWeight by animateFloatAsState(
+        targetValue = if (termEnabled) 1f else 0f,
+        animationSpec = spring(dampingRatio = 1f, stiffness = 700f),
         label = "termWeight"
     )
+    val termWeight = animatedWeight.coerceIn(0.0001f, 1f)
     val termAlpha by animateFloatAsState(
         targetValue = if (termEnabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = 600f),
+        animationSpec = spring(dampingRatio = 1f, stiffness = 600f),
         label = "termAlpha"
     )
 
@@ -840,30 +535,26 @@ private fun BottomBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Uni
             NavItem(Icons.Outlined.Home, "首页", 0, current, onSelect)
             NavItem(Icons.Outlined.Folder, "文件", 1, current, onSelect)
             NavItem(Icons.Outlined.Extension, "模块", 2, current, onSelect)
-
             Box(Modifier.weight(termWeight).fillMaxHeight().clipToBounds()) {
-                if (termAlpha > 0.02f) {
-                    Column(
-                        Modifier.fillMaxSize()
-                            .graphicsLayer { alpha = termAlpha }
-                            .clickable { onSelect(4) },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Outlined.Terminal, null,
-                            tint = if (current == 4) RuneTokens.Accent else RuneTokens.Muted,
-                            modifier = Modifier.size(21.dp)
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            "终端", fontSize = 11.sp,
-                            color = if (current == 4) RuneTokens.Accent else RuneTokens.Muted
-                        )
-                    }
+                Column(
+                    Modifier.fillMaxSize()
+                        .graphicsLayer { alpha = termAlpha }
+                        .clickable { onSelect(4) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.Terminal, null,
+                        tint = if (current == 4) RuneTokens.Accent else RuneTokens.Muted,
+                        modifier = Modifier.size(21.dp)
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        "终端", fontSize = 11.sp,
+                        color = if (current == 4) RuneTokens.Accent else RuneTokens.Muted
+                    )
                 }
             }
-
             NavItem(Icons.Outlined.Settings, "设置", 3, current, onSelect)
         }
     }
@@ -891,58 +582,6 @@ private fun RowScope.NavItem(
     }
 }
 
-private fun listDir(path: String): List<File> =
-    File(path).listFiles()
-        ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-        ?: emptyList()
-
-private fun fileIcon(f: File): ImageVector {
-    val name = f.name.lowercase()
-    return when {
-        name.endsWith(".apk") -> Icons.Outlined.Android
-        name.endsWith(".zip") || name.endsWith(".7z") || name.endsWith(".rar") -> Icons.Outlined.FolderZip
-        name.endsWith(".jpg") || name.endsWith(".png") || name.endsWith(".webp") -> Icons.Outlined.Image
-        name.endsWith(".mp3") || name.endsWith(".flac") || name.endsWith(".wav") -> Icons.Outlined.MusicNote
-        name.endsWith(".mp4") || name.endsWith(".mkv") -> Icons.Outlined.Movie
-        name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".log") -> Icons.Outlined.Description
-        else -> Icons.Outlined.InsertDriveFile
-    }
-}
-
-private fun formatSize(n: Long): String = when {
-    n >= 1L shl 30 -> String.format("%.1fG", n / (1L shl 30).toDouble())
-    n >= 1L shl 20 -> String.format("%.1fM", n / (1L shl 20).toDouble())
-    n >= 1L shl 10 -> String.format("%.0fK", n / (1L shl 10).toDouble())
-    else -> "$n B"
-}
-
-private fun dateText(ms: Long): String =
-    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
-
-private fun copyRecursive(src: File, dstDir: File): Boolean {
-    val dst = File(dstDir, src.name)
-    if (src.isDirectory) {
-        if (!dst.exists() && !dst.mkdirs()) return false
-        src.listFiles()?.forEach { if (!copyRecursive(it, dst)) return false }
-        return true
-    }
-    return try {
-        src.inputStream().use { input ->
-            dst.outputStream().use { output -> input.copyTo(output) }
-        }
-        true
-    } catch (_: Exception) {
-        false
-    }
-}
-
-private fun deleteRecursive(f: File): Boolean {
-    if (f.isDirectory) {
-        f.listFiles()?.forEach { if (!deleteRecursive(it)) return false }
-    }
-    return f.delete()
-}
-
 private fun cpuLoad(): Int? {
     val stat = cpuUsage()
     if (stat != null) return stat
@@ -950,9 +589,7 @@ private fun cpuLoad(): Int? {
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
         val load = File("/proc/loadavg").readText().trim().split(Regex("\\s+")).first().toDouble()
         ((load / cores) * 100.0).toInt().coerceIn(0, 100)
-    } catch (_: Exception) {
-        null
-    }
+    } catch (_: Exception) { null }
 }
 
 private fun cpuUsage(): Int? {
@@ -970,9 +607,7 @@ private fun cpuUsage(): Int? {
         val total = b.sum() - a.sum()
         if (total <= 0) null
         else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
-    } catch (_: Exception) {
-        null
-    }
+    } catch (_: Exception) { null }
 }
 
 private fun cpuModel(): String? {
@@ -995,33 +630,23 @@ private fun cpuModel(): String? {
     } catch (_: Exception) { null }
 }
 
-private fun memInfo(): Pair<Int, String>? = try {
-    val map = File("/proc/meminfo").readLines().mapNotNull { line ->
-        val i = line.indexOf(':')
-        if (i <= 0) null else {
-            val key = line.substring(0, i)
-            val num = line.substring(i + 1).trim().split(Regex("\\s+")).firstOrNull()?.toLongOrNull()
-            if (num == null) null else key to num
+private fun memInfo(): Int? = try {
+    var total = 0L
+    var avail = 0L
+    File("/proc/meminfo").forEachLine { line ->
+        when {
+            line.startsWith("MemTotal:") -> total = line.filter { it.isDigit() }.toLongOrNull() ?: 0L
+            line.startsWith("MemAvailable:") -> avail = line.filter { it.isDigit() }.toLongOrNull() ?: 0L
         }
-    }.toMap()
-    val total = map["MemTotal"]
-    val avail = map["MemAvailable"]
-    if (total == null || avail == null || total <= 0) null else {
-        val used = total - avail
-        val pct = (used * 100 / total).toInt()
-        pct to String.format("%.1f / %.1f GB", used / 1048576.0, total / 1048576.0)
     }
+    if (total <= 0) null else ((total - avail) * 100 / total).toInt()
 } catch (_: Exception) { null }
 
-private fun storageInfo(): Pair<Int, String>? = try {
+private fun storageInfo(): Int? = try {
     val s = StatFs(Environment.getExternalStorageDirectory().absolutePath)
     val total = s.blockCountLong * s.blockSizeLong
     val avail = s.availableBlocksLong * s.blockSizeLong
-    if (total <= 0) null else {
-        val used = total - avail
-        val pct = (used * 100 / total).toInt()
-        pct to String.format("%.1f / %.1f GB", used / 1073741824.0, total / 1073741824.0)
-    }
+    if (total <= 0) null else ((total - avail) * 100 / total).toInt()
 } catch (_: Exception) { null }
 
 private fun batteryPct(ctx: Context): Int? = try {
@@ -1034,10 +659,25 @@ private fun tempC(): Double? = try {
     File("/sys/class/thermal/thermal_zone0/temp").readText().trim().toLong() / 1000.0
 } catch (_: Exception) { null }
 
-private fun selinuxStatus(): String = try {
-    val v = File("/sys/fs/selinux/enforce").readText().trim()
-    if (v == "1") "强制执行" else "宽容模式"
-} catch (_: Exception) { "未知" }
+private fun selinuxStatus(): String {
+    try {
+        val p = ProcessBuilder("getenforce").redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText().trim()
+        p.waitFor()
+        if (out.isNotEmpty()) {
+            return when {
+                out.equals("Enforcing", true) -> "强制执行"
+                out.equals("Permissive", true) -> "宽容模式"
+                out.equals("Disabled", true) -> "已关闭"
+                else -> out
+            }
+        }
+    } catch (_: Exception) { }
+    return try {
+        val v = File("/sys/fs/selinux/enforce").readText().trim()
+        if (v == "1") "强制执行" else "宽容模式"
+    } catch (_: Exception) { "未知" }
+}
 
 private fun seccompStatus(): String = try {
     val line = File("/proc/self/status").readLines().firstOrNull { it.startsWith("Seccomp:") }
