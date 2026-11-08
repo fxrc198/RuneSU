@@ -5,6 +5,9 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,7 +26,18 @@ jobs:
       - name: Build debug
         run: gradle assembleDebug --no-daemon
 
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/RuneSU-debug.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: RuneSU-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: out/RuneSU-debug.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: RuneSU build ${{ github.run_number }}
+          files: out/RuneSU-debug.apk
