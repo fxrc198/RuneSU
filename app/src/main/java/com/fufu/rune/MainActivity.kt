@@ -20,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,15 +53,18 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 
 object RuneTokens {
-    val Bg = Color(0xFFF5F8FB)
+    val Bg = Color(0xFFF4F8FB)
     val Panel = Color(0xFFFFFFFF)
-    val Panel2 = Color(0xFFEDF2F7)
-    val Border = Color(0xFFE1E8F0)
-    val Text = Color(0xFF16202C)
-    val Muted = Color(0xFF6C7C90)
+    val Panel2 = Color(0xFFEFF4F8)
+    val Border = Color(0xFFE4EBF2)
+    val Text = Color(0xFF141C26)
+    val Muted = Color(0xFF6B7A8D)
     val Accent = Color(0xFF2FB9A8)
+    val Blue = Color(0xFF5B8DEF)
+    val Amber = Color(0xFFE8A33D)
     val Danger = Color(0xFFE5484D)
     val Success = Color(0xFF12A05C)
+    val HeroTop = Color(0xFFE3F7F2)
 }
 
 data class Snapshot(
@@ -241,10 +246,10 @@ private fun Home(
     onOpen: (Int) -> Unit
 ) {
     val stats = buildList {
-        snap.cpu?.let { add(Triple(Icons.Outlined.Memory, it, "负载")) }
-        snap.mem?.let { add(Triple(Icons.Outlined.DeveloperBoard, it, "内存")) }
-        snap.storage?.let { add(Triple(Icons.Outlined.Storage, it, "存储")) }
-        snap.battery?.let { add(Triple(Icons.Outlined.BatteryFull, it, "电池")) }
+        snap.cpu?.let { add(Triple(Icons.Outlined.Memory, it, "负载", RuneTokens.Accent)) }
+        snap.mem?.let { add(Triple(Icons.Outlined.DeveloperBoard, it, "内存", RuneTokens.Blue)) }
+        snap.storage?.let { add(Triple(Icons.Outlined.Storage, it, "存储", RuneTokens.Amber)) }
+        snap.battery?.let { add(Triple(Icons.Outlined.BatteryFull, it, "电池", RuneTokens.Success)) }
     }
     val info = buildList {
         add(Icons.Outlined.Code to ("内核版本" to (System.getProperty("os.version") ?: "")))
@@ -256,20 +261,27 @@ private fun Home(
     Column(
         Modifier
             .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    0f to RuneTokens.HeroTop,
+                    0.35f to RuneTokens.Bg,
+                    1f to RuneTokens.Bg
+                )
+            )
             .verticalScroll(rememberScrollState())
             .statusBarsPadding()
             .padding(horizontal = 14.dp)
     ) {
-        Spacer(Modifier.height(14.dp))
-        Text("RuneSU", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("RuneSU", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+        Spacer(Modifier.height(3.dp))
         Text(
             "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
             fontSize = 11.5.sp, color = RuneTokens.Muted,
             maxLines = 1, overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
         StatusModuleCard(suPath, checked, modules, stats) { onOpen(2) }
 
         SectionLabel("系统")
@@ -287,7 +299,7 @@ private fun Home(
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(22.dp))
     }
 }
 
@@ -296,7 +308,7 @@ private fun StatusModuleCard(
     suPath: String?,
     checked: Boolean,
     modules: Int?,
-    stats: List<Triple<ImageVector, Int, String>>,
+    stats: List<Triple<ImageVector, Int, String, Color>>,
     onModules: () -> Unit
 ) {
     val color = when {
@@ -313,23 +325,24 @@ private fun StatusModuleCard(
 
     Surface(
         color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, RuneTokens.Border),
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.4f, stiffness = 500f)
     ) {
         Column {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(38.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(11.dp)),
+                    Modifier.size(40.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(13.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         if (suPath != null) Icons.Outlined.VerifiedUser else Icons.Outlined.GppBad,
-                        null, tint = color, modifier = Modifier.size(20.dp)
+                        null, tint = color, modifier = Modifier.size(21.dp)
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                    Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
                     Spacer(Modifier.height(2.dp))
                     Text(
                         sub, fontSize = 11.5.sp, color = RuneTokens.Muted,
@@ -354,8 +367,8 @@ private fun StatusModuleCard(
             }
             if (stats.isNotEmpty()) {
                 RowDivider()
-                Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-                    stats.forEach { (icon, value, label) -> StatCell(icon, value, label) }
+                Row(Modifier.fillMaxWidth().padding(vertical = 13.dp)) {
+                    stats.forEach { (icon, value, label, tint) -> StatCell(icon, value, label, tint) }
                 }
             }
         }
@@ -363,10 +376,15 @@ private fun StatusModuleCard(
 }
 
 @Composable
-private fun RowScope.StatCell(icon: ImageVector, value: Int, label: String) {
+private fun RowScope.StatCell(icon: ImageVector, value: Int, label: String, tint: Color) {
     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, tint = RuneTokens.Accent.copy(alpha = 0.85f), modifier = Modifier.size(13.dp))
-        Spacer(Modifier.height(3.dp))
+        Box(
+            Modifier.size(26.dp).background(tint.copy(alpha = 0.12f), RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(14.dp))
+        }
+        Spacer(Modifier.height(5.dp))
         Text("$value%", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
         Spacer(Modifier.height(1.dp))
         Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
@@ -375,18 +393,22 @@ private fun RowScope.StatCell(icon: ImageVector, value: Int, label: String) {
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(
-        text,
-        fontSize = 11.sp, color = RuneTokens.Muted,
-        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp)
-    )
+    Row(
+        Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(width = 3.dp, height = 11.dp).background(RuneTokens.Accent, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.width(7.dp))
+        Text(text, fontSize = 11.sp, color = RuneTokens.Muted)
+    }
 }
 
 @Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, RuneTokens.Border),
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.36f, stiffness = 450f)
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 2.dp), content = content)
@@ -464,7 +486,7 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
             .statusBarsPadding()
             .padding(horizontal = 14.dp)
     ) {
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
         Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
 
         SectionLabel("功能")
@@ -494,12 +516,12 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
 
         SectionLabel("关于")
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "0.7.0")
+            InfoRow(Icons.Outlined.Info, "版本", "0.8.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(22.dp))
     }
 }
 
@@ -660,23 +682,14 @@ private fun tempC(): Double? = try {
 } catch (_: Exception) { null }
 
 private fun selinuxStatus(): String {
-    try {
-        val p = ProcessBuilder("getenforce").redirectErrorStream(true).start()
-        val out = p.inputStream.bufferedReader().readText().trim()
-        p.waitFor()
-        if (out.isNotEmpty()) {
-            return when {
-                out.equals("Enforcing", true) -> "强制执行"
-                out.equals("Permissive", true) -> "宽容模式"
-                out.equals("Disabled", true) -> "已关闭"
-                else -> out
-            }
-        }
-    } catch (_: Exception) { }
-    return try {
-        val v = File("/sys/fs/selinux/enforce").readText().trim()
-        if (v == "1") "强制执行" else "宽容模式"
-    } catch (_: Exception) { "未知" }
+    val out = runQuiet("getenforce")
+    return when {
+        out == null -> "不可读（需要 Root）"
+        out.equals("Enforcing", true) -> "强制执行"
+        out.equals("Permissive", true) -> "宽容模式"
+        out.equals("Disabled", true) -> "已关闭"
+        else -> "不可读（需要 Root）"
+    }
 }
 
 private fun seccompStatus(): String = try {
@@ -688,3 +701,10 @@ private fun seccompStatus(): String = try {
         else -> "未知"
     }
 } catch (_: Exception) { "未知" }
+
+private fun runQuiet(cmd: String): String? = try {
+    val p = ProcessBuilder(cmd).redirectErrorStream(true).start()
+    val text = p.inputStream.bufferedReader().readText().trim()
+    p.waitFor()
+    if (p.exitValue() == 0 && text.isNotEmpty() && !text.contains("denied", true)) text else null
+} catch (_: Exception) { null }
