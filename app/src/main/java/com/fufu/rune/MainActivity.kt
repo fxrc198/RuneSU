@@ -60,17 +60,19 @@ object RuneTokens {
     val Text = Color(0xFF151B23)
     val Muted = Color(0xFF6E7C8C)
     val Accent = Color(0xFF2FB9A8)
+    val Blue = Color(0xFF5B8DEF)
+    val Amber = Color(0xFFE8A33D)
+    val Green = Color(0xFF2FBF71)
     val Danger = Color(0xFFE5484D)
     val Success = Color(0xFF12A05C)
 }
 
 data class Snapshot(
-    val cpu: Int? = null,
-    val mem: Int? = null,
-    val storage: Int? = null,
-    val battery: Int? = null,
-    val temp: Double? = null
+    val cpu: Int? = null, val mem: Int? = null, val storage: Int? = null,
+    val battery: Int? = null, val temp: Double? = null
 )
+
+data class NavEntry(val id: Int, val icon: ImageVector, val label: String)
 
 class MainActivity : ComponentActivity() {
 
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
     private var snap by mutableStateOf(Snapshot())
     private var refreshing by mutableStateOf(false)
     private var termEnabled by mutableStateOf(false)
+    private var radial by mutableStateOf(false)
     private var foreground by mutableStateOf(true)
 
     private val requestAll = registerForActivityResult(
@@ -94,31 +97,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(
-                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
-            ),
-            navigationBarStyle = SystemBarStyle.light(
-                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
-            )
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
         )
         refreshGrant()
         detectRoot()
         setContent {
             LaunchedEffect(page, foreground) {
                 if (page == 0 && foreground) {
-                    while (true) {
-                        refresh()
-                        delay(2500)
-                    }
+                    while (true) { refresh(); delay(2500) }
                 }
             }
             MaterialTheme(
                 colorScheme = lightColorScheme(
-                    primary = RuneTokens.Accent,
-                    background = RuneTokens.Bg,
-                    surface = RuneTokens.Panel,
-                    onBackground = RuneTokens.Text,
-                    onSurface = RuneTokens.Text
+                    primary = RuneTokens.Accent, background = RuneTokens.Bg,
+                    surface = RuneTokens.Panel, onBackground = RuneTokens.Text, onSurface = RuneTokens.Text
                 )
             ) {
                 Box(Modifier.fillMaxSize().background(RuneTokens.Bg)) {
@@ -129,15 +122,25 @@ class MainActivity : ComponentActivity() {
                                     Environment.getExternalStorageDirectory().absolutePath
                                 ) else PermissionHint { askAllFiles() }
                                 2 -> Placeholder("模块", "接入 /data/adb/modules 后显示")
-                                3 -> SettingsPage(termEnabled) { enabled ->
-                                    termEnabled = enabled
-                                    if (!enabled && page == 4) page = 0
-                                }
+                                3 -> SettingsPage(termEnabled, radial,
+                                    onTerm = { enabled ->
+                                        termEnabled = enabled
+                                        if (!enabled && page == 4) page = 0
+                                    },
+                                    onRadial = { radial = it }
+                                )
                                 4 -> Placeholder("终端", "命令执行下一步接")
                                 else -> Home(suPath, checked, modules, snap)
                             }
                         }
-                        BottomBar(termEnabled, page) { idx ->
+                        if (!radial) {
+                            BottomBar(termEnabled, page) { idx ->
+                                if (idx == 1 && !granted) askAllFiles() else page = idx
+                            }
+                        }
+                    }
+                    if (radial) {
+                        RadialNav(page, navEntries(termEnabled)) { idx ->
                             if (idx == 1 && !granted) askAllFiles() else page = idx
                         }
                     }
@@ -151,17 +154,8 @@ class MainActivity : ComponentActivity() {
         refreshing = true
         val ctx = applicationContext
         Thread {
-            val result = Snapshot(
-                cpu = cpuLoad(),
-                mem = memInfo(),
-                storage = storageInfo(),
-                battery = batteryPct(ctx),
-                temp = tempC()
-            )
-            Handler(Looper.getMainLooper()).post {
-                snap = result
-                refreshing = false
-            }
+            val result = Snapshot(cpuLoad(), memInfo(), storageInfo(), batteryPct(ctx), tempC())
+            Handler(Looper.getMainLooper()).post { snap = result; refreshing = false }
         }.start()
     }
 
@@ -195,72 +189,60 @@ class MainActivity : ComponentActivity() {
             val cnt = try { File("/data/adb/modules").listFiles()?.size } catch (_: Exception) { null }
             Handler(Looper.getMainLooper()).post {
                 suPath = if (ok) (found ?: "su") else null
-                modules = cnt
-                checked = true
+                modules = cnt; checked = true
             }
         }.start()
     }
 }
 
+private fun navEntries(term: Boolean): List<NavEntry> = buildList {
+    add(NavEntry(0, Icons.Outlined.Home, "首页"))
+    add(NavEntry(1, Icons.Outlined.Folder, "文件"))
+    add(NavEntry(2, Icons.Outlined.Extension, "模块"))
+    if (term) add(NavEntry(4, Icons.Outlined.Terminal, "终端"))
+    add(NavEntry(3, Icons.Outlined.Settings, "设置"))
+}
+
 @Composable
 private fun Modifier.bouncy(
-    depth: Float = 0.96f,
-    damping: Float = 0.30f,
-    stiffness: Float = 400f,
+    depth: Float = 0.96f, damping: Float = 0.30f, stiffness: Float = 400f,
     onClick: (() -> Unit)? = null
 ): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
     val scale = remember { Animatable(1f) }
-
     LaunchedEffect(pressed) {
         if (pressed) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             scale.animateTo(depth, spring(dampingRatio = 1f, stiffness = 1600f))
-        } else {
-            scale.animateTo(1f, spring(dampingRatio = damping, stiffness = stiffness))
-        }
+        } else scale.animateTo(1f, spring(dampingRatio = damping, stiffness = stiffness))
     }
-
-    return this
-        .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
+    return this.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
         .clickable(interactionSource = interaction, indication = null) { onClick?.invoke() }
 }
 
 @Composable
 private fun Home(suPath: String?, checked: Boolean, modules: Int?, snap: Snapshot) {
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .statusBarsPadding().padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(20.dp))
         Text("RuneSU", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
         Spacer(Modifier.height(3.dp))
         Text(
             "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}".trim(),
-            fontSize = 11.5.sp, color = RuneTokens.Muted,
-            maxLines = 1, overflow = TextOverflow.Ellipsis
+            fontSize = 11.5.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
         StatusCard(suPath, checked)
-
-        Spacer(Modifier.height(12.dp))
-        PerfCard(snap)
+        Spacer(Modifier.height(10.dp))
+        PerfCard(snap, modules)
 
         SectionLabel("设备")
         DeviceGrid(modules, snap)
-
-        SectionLabel("详情")
-        SectionCard {
-            InfoRow(Icons.Outlined.Code, "内核版本", System.getProperty("os.version") ?: "—")
-            RowDivider()
-            InfoRow(Icons.Outlined.Fingerprint, "系统指纹", Build.FINGERPRINT)
-        }
 
         SectionLabel("安全")
         SectionCard {
@@ -268,48 +250,36 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?, snap: Snapsho
             RowDivider()
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
         }
-
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(90.dp))
     }
 }
 
 @Composable
 private fun StatusCard(suPath: String?, checked: Boolean) {
-    val color = when {
-        !checked -> RuneTokens.Muted
-        suPath != null -> RuneTokens.Success
-        else -> RuneTokens.Danger
-    }
-    val title = when {
-        !checked -> "正在检测…"
-        suPath != null -> "Root 已连接"
-        else -> "未检测到 Root"
-    }
-    val sub = if (suPath != null) suPath else "安装 KernelSU 后自动启用"
-
+    val color = when { !checked -> RuneTokens.Muted; suPath != null -> RuneTokens.Success; else -> RuneTokens.Danger }
+    val title = when { !checked -> "正在检测…"; suPath != null -> "Root 已连接"; else -> "未检测到 Root" }
     Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
+        color = RuneTokens.Panel, shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, RuneTokens.Border),
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.4f, stiffness = 500f)
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(42.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(14.dp)),
+                Modifier.size(40.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(13.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     if (suPath != null) Icons.Outlined.VerifiedUser else Icons.Outlined.GppBad,
-                    null, tint = color, modifier = Modifier.size(22.dp)
+                    null, tint = color, modifier = Modifier.size(21.dp)
                 )
             }
-            Spacer(Modifier.width(13.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
-                Spacer(Modifier.height(3.dp))
+                Text(title, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    sub, fontSize = 11.5.sp, color = RuneTokens.Muted,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                    if (suPath != null) suPath else "安装 KernelSU 后自动启用",
+                    fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -317,145 +287,147 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
 }
 
 @Composable
-private fun PerfCard(snap: Snapshot) {
-    val cells = buildList {
-        snap.mem?.let { add("内存" to it) }
-        snap.storage?.let { add("存储" to it) }
-        snap.battery?.let { add("电池" to it) }
-        snap.cpu?.let { add("负载" to it) }
-    }
-    if (cells.isEmpty()) return
-
+private fun PerfCard(snap: Snapshot, modules: Int?) {
     Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
+        color = RuneTokens.Panel, shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, RuneTokens.Border),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(6.dp)) {
-            cells.chunked(2).forEach { row ->
-                Row(Modifier.fillMaxWidth()) {
-                    row.forEach { (label, value) ->
-                        PerfCell(label, value, Modifier.weight(1f))
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
+        Column(Modifier.padding(4.dp)) {
+            Row {
+                PerfCell(Icons.Outlined.Memory, "内存", snap.mem, RuneTokens.Blue, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.Storage, "存储", snap.storage, RuneTokens.Amber, Modifier.weight(1f))
+            }
+            Row {
+                PerfCell(Icons.Outlined.BatteryFull, "电池", snap.battery, RuneTokens.Green, Modifier.weight(1f))
+                ModuleCell(modules, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun PerfCell(label: String, value: Int, modifier: Modifier = Modifier) {
-    Column(modifier.padding(12.dp)) {
-        Text(label, fontSize = 11.sp, color = RuneTokens.Muted)
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("$value", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
-            Text("%", fontSize = 12.sp, color = RuneTokens.Muted,
-                modifier = Modifier.padding(bottom = 3.dp, start = 1.dp))
-        }
-        Spacer(Modifier.height(8.dp))
-        Box(
-            Modifier.fillMaxWidth().height(4.dp)
-                .background(RuneTokens.Panel2, RoundedCornerShape(2.dp))
-        ) {
+private fun PerfCell(icon: ImageVector, label: String, value: Int?, tint: Color, modifier: Modifier) {
+    Column(modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.fillMaxWidth((value / 100f).coerceIn(0f, 1f)).height(4.dp)
-                    .background(RuneTokens.Accent, RoundedCornerShape(2.dp))
+                Modifier.size(20.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center
+            ) { Icon(icon, null, tint = tint, modifier = Modifier.size(12.dp)) }
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontSize = 10.5.sp, color = RuneTokens.Muted)
+        }
+        Spacer(Modifier.height(5.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value?.toString() ?: "—", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+            if (value != null) Text("%", fontSize = 11.sp, color = RuneTokens.Muted,
+                modifier = Modifier.padding(start = 1.dp, bottom = 2.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(3.5.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp))) {
+            Box(
+                Modifier.fillMaxWidth(((value ?: 0) / 100f).coerceIn(0f, 1f)).height(3.5.dp)
+                    .background(tint, RoundedCornerShape(2.dp))
             )
         }
+    }
+}
+
+@Composable
+private fun ModuleCell(modules: Int?, modifier: Modifier) {
+    Column(modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(20.dp).background(RuneTokens.Accent.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Accent, modifier = Modifier.size(12.dp)) }
+            Spacer(Modifier.width(6.dp))
+            Text("模块", fontSize = 10.5.sp, color = RuneTokens.Muted)
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            modules?.let { "$it 个" } ?: "未接入",
+            fontSize = 17.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text,
+            maxLines = 1, overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxWidth().height(3.5.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp)))
     }
 }
 
 @Composable
 private fun DeviceGrid(modules: Int?, snap: Snapshot) {
     val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
-    val kernel = (System.getProperty("os.version") ?: "-")
-        .substringBefore("-g").substringBefore("-abogki")
+    val kernel = (System.getProperty("os.version") ?: "-").substringBefore("-g")
     val cells = listOf(
         Icons.Outlined.Memory to ("处理器" to (cpuModel() ?: "—")),
         Icons.Outlined.DeveloperBoard to ("架构" to abi),
         Icons.Outlined.SystemUpdate to ("系统" to "Android ${Build.VERSION.RELEASE}"),
         Icons.Outlined.Code to ("内核" to kernel),
-        Icons.Outlined.Extension to ("模块" to (modules?.let { "$it 个" } ?: "未接入")),
+        Icons.Outlined.Fingerprint to ("指纹" to Build.FINGERPRINT),
         Icons.Outlined.Thermostat to ("温度" to (snap.temp?.let { String.format("%.1f°C", it) } ?: "—"))
     )
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         cells.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { (icon, pair) ->
-                    GridCell(icon, pair.first, pair.second, Modifier.weight(1f))
-                }
+                row.forEach { (icon, pair) -> GridCell(icon, pair.first, pair.second, Modifier.weight(1f)) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun GridCell(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+private fun GridCell(icon: ImageVector, label: String, value: String, modifier: Modifier) {
     Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(14.dp),
+        color = RuneTokens.Panel, shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, RuneTokens.Border),
-        modifier = modifier.height(70.dp)
+        modifier = modifier.height(62.dp)
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.Center) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(14.dp))
+                Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(label, fontSize = 10.sp, color = RuneTokens.Muted)
+                Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                value, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text,
-                maxLines = 1, overflow = TextOverflow.Ellipsis
-            )
+            Spacer(Modifier.height(3.dp))
+            Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(
-        text,
-        fontSize = 11.sp, color = RuneTokens.Muted,
-        modifier = Modifier.padding(start = 4.dp, top = 20.dp, bottom = 8.dp)
-    )
+    Text(text, fontSize = 11.sp, color = RuneTokens.Muted,
+        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 7.dp))
 }
 
 @Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
+        color = RuneTokens.Panel, shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, RuneTokens.Border),
         modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp), content = content)
-    }
+    ) { Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp), content = content) }
 }
 
 @Composable
 private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(14.dp))
         Text(title, fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
         Text(badge, fontSize = 12.sp, color = RuneTokens.Muted)
         Spacer(Modifier.width(4.dp))
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-            tint = RuneTokens.Muted, modifier = Modifier.size(16.dp))
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = RuneTokens.Muted, modifier = Modifier.size(16.dp))
     }
 }
 
 @Composable
 private fun InfoRow(icon: ImageVector, title: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.Top) {
         Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(19.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -467,17 +439,12 @@ private fun InfoRow(icon: ImageVector, title: String, value: String) {
 }
 
 @Composable
-private fun RowDivider() {
-    HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
-}
+private fun RowDivider() { HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border) }
 
 @Composable
 private fun PermissionHint(onAsk: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Accent, modifier = Modifier.size(38.dp))
         Spacer(Modifier.height(12.dp))
         Text("需要「所有文件访问」权限", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
@@ -491,20 +458,28 @@ private fun PermissionHint(onAsk: () -> Unit) {
 }
 
 @Composable
-private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
+private fun SettingsPage(
+    termEnabled: Boolean, radial: Boolean,
+    onTerm: (Boolean) -> Unit, onRadial: (Boolean) -> Unit
+) {
     val ctx = LocalContext.current
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp)
-    ) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        .statusBarsPadding().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(20.dp))
         Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
 
-        SectionLabel("功能")
+        SectionLabel("界面")
         SectionCard {
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.RadioButtonChecked, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("扇形导航", fontSize = 14.sp, color = RuneTokens.Text)
+                    Text("切换为环绕式按钮导航", fontSize = 11.sp, color = RuneTokens.Muted)
+                }
+                Switch(checked = radial, onCheckedChange = onRadial)
+            }
+            RowDivider()
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
                 Spacer(Modifier.width(14.dp))
@@ -514,7 +489,10 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
                 }
                 Switch(checked = termEnabled, onCheckedChange = onTerm)
             }
-            RowDivider()
+        }
+
+        SectionLabel("Root")
+        SectionCard {
             ActionRow(Icons.Outlined.Language, "网页控制", "未接入") {
                 Toast.makeText(ctx, "需要 Root 环境", Toast.LENGTH_SHORT).show()
             }
@@ -526,12 +504,11 @@ private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
 
         SectionLabel("关于")
         SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "1.0.0")
+            InfoRow(Icons.Outlined.Info, "版本", "1.1.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
-
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(90.dp))
     }
 }
 
@@ -549,38 +526,29 @@ private fun Placeholder(title: String, desc: String) {
 private fun BottomBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
     val animatedWeight by animateFloatAsState(
         targetValue = if (termEnabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 700f),
-        label = "termWeight"
+        animationSpec = spring(dampingRatio = 1f, stiffness = 700f), label = "w"
     )
     val termWeight = animatedWeight.coerceIn(0.0001f, 1f)
     val termAlpha by animateFloatAsState(
         targetValue = if (termEnabled) 1f else 0f,
-        animationSpec = spring(dampingRatio = 1f, stiffness = 600f),
-        label = "termAlpha"
+        animationSpec = spring(dampingRatio = 1f, stiffness = 600f), label = "a"
     )
-
     Surface(color = RuneTokens.Panel, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().height(58.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(58.dp),
+            verticalAlignment = Alignment.CenterVertically) {
             NavItem(Icons.Outlined.Home, "首页", 0, current, onSelect)
             NavItem(Icons.Outlined.Folder, "文件", 1, current, onSelect)
             NavItem(Icons.Outlined.Extension, "模块", 2, current, onSelect)
             Box(Modifier.weight(termWeight).fillMaxHeight().clipToBounds()) {
                 Column(
-                    Modifier.fillMaxSize()
-                        .graphicsLayer { alpha = termAlpha }
-                        .clickable { onSelect(4) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    Modifier.fillMaxSize().graphicsLayer { alpha = termAlpha }.clickable { onSelect(4) },
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
                 ) {
                     Icon(Icons.Outlined.Terminal, null,
                         tint = if (current == 4) RuneTokens.Accent else RuneTokens.Muted,
                         modifier = Modifier.size(21.dp))
                     Spacer(Modifier.height(3.dp))
-                    Text("终端", fontSize = 11.sp,
-                        color = if (current == 4) RuneTokens.Accent else RuneTokens.Muted)
+                    Text("终端", fontSize = 11.sp, color = if (current == 4) RuneTokens.Accent else RuneTokens.Muted)
                 }
             }
             NavItem(Icons.Outlined.Settings, "设置", 3, current, onSelect)
@@ -589,20 +557,89 @@ private fun BottomBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Uni
 }
 
 @Composable
-private fun RowScope.NavItem(
-    icon: ImageVector, label: String, idx: Int, current: Int, onSelect: (Int) -> Unit
-) {
+private fun RowScope.NavItem(icon: ImageVector, label: String, idx: Int, current: Int, onSelect: (Int) -> Unit) {
     val active = current == idx
     val tint = if (active) RuneTokens.Accent else RuneTokens.Muted
     Column(
-        Modifier.weight(1f).fillMaxHeight()
-            .bouncy(depth = 0.90f, damping = 0.28f, stiffness = 520f) { onSelect(idx) },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        Modifier.weight(1f).fillMaxHeight().bouncy(depth = 0.90f, damping = 0.28f, stiffness = 520f) { onSelect(idx) },
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
     ) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(21.dp))
         Spacer(Modifier.height(3.dp))
         Text(label, fontSize = 11.sp, color = tint)
+    }
+}
+
+@Composable
+private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val progress by animateFloatAsState(
+        targetValue = if (open) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 380f), label = "radial"
+    )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val cx = maxWidth / 2
+        val cy = maxHeight - 96.dp
+        val radius = 104.dp
+        val btn = 54.dp
+
+        if (open) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.18f * progress))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { open = false }
+            )
+        }
+
+        items.forEachIndexed { i, entry ->
+            val t = ((progress - i * 0.05f) / 0.75f).coerceIn(0f, 1f)
+            val step = if (items.size > 1) 156.0 / (items.size - 1) else 0.0
+            val angle = Math.toRadians(-78.0 + i * step)
+            val x = cx + radius * kotlin.math.sin(angle).toFloat()
+            val y = cy - radius * kotlin.math.cos(angle).toFloat()
+            val active = current == entry.id
+            Box(
+                Modifier
+                    .offset(x = x - btn / 2, y = y - btn / 2)
+                    .size(btn)
+                    .graphicsLayer {
+                        alpha = t
+                        scaleX = 0.65f + 0.35f * t
+                        scaleY = 0.65f + 0.35f * t
+                    }
+                    .background(if (active) RuneTokens.Accent else RuneTokens.Panel, CircleShape)
+                    .clickable(enabled = open) { onSelect(entry.id); open = false },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(entry.icon, null,
+                        tint = if (active) Color.White else RuneTokens.Muted,
+                        modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.height(2.dp))
+                    Text(entry.label, fontSize = 9.sp,
+                        color = if (active) Color.White else RuneTokens.Muted)
+                }
+            }
+        }
+
+        Box(
+            Modifier.offset(x = cx - 28.dp, y = cy - 28.dp).size(56.dp)
+                .graphicsLayer { rotationZ = 90f * progress }
+                .background(RuneTokens.Accent, CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { open = !open },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (open) Icons.Outlined.Close else Icons.Outlined.Menu, null,
+                tint = Color.White, modifier = Modifier.size(24.dp)
+            )
+        }
     }
 }
 
@@ -618,19 +655,15 @@ private fun cpuLoad(): Int? {
 
 private fun cpuUsage(): Int? {
     fun read(): LongArray {
-        val line = File("/proc/stat").readLines()
-            .firstOrNull { it.startsWith("cpu ") } ?: return LongArray(8)
+        val line = File("/proc/stat").readLines().firstOrNull { it.startsWith("cpu ") } ?: return LongArray(8)
         val p = line.trim().split(Regex("\\s+"))
         return LongArray(8) { i -> p.getOrNull(i + 1)?.toLongOrNull() ?: 0L }
     }
     return try {
-        val a = read()
-        Thread.sleep(320)
-        val b = read()
+        val a = read(); Thread.sleep(320); val b = read()
         val idle = (b[3] + b[4]) - (a[3] + a[4])
         val total = b.sum() - a.sum()
-        if (total <= 0) null
-        else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
+        if (total <= 0) null else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
     } catch (_: Exception) { null }
 }
 
@@ -648,15 +681,13 @@ private fun cpuModel(): String? {
         } catch (_: Exception) { }
     }
     return try {
-        File("/proc/cpuinfo").readLines()
-            .firstOrNull { it.startsWith("Hardware") }
+        File("/proc/cpuinfo").readLines().firstOrNull { it.startsWith("Hardware") }
             ?.substringAfter(':')?.trim()?.ifEmpty { null }
     } catch (_: Exception) { null }
 }
 
 private fun memInfo(): Int? = try {
-    var total = 0L
-    var avail = 0L
+    var total = 0L; var avail = 0L
     File("/proc/meminfo").forEachLine { line ->
         when {
             line.startsWith("MemTotal:") -> total = line.filter { it.isDigit() }.toLongOrNull() ?: 0L
@@ -696,9 +727,6 @@ private fun selinuxStatus(): String {
 private fun seccompStatus(): String = try {
     val line = File("/proc/self/status").readLines().firstOrNull { it.startsWith("Seccomp:") }
     when (line?.substringAfter(":")?.trim()) {
-        "0" -> "关闭"
-        "1" -> "严格模式"
-        "2" -> "过滤模式"
-        else -> "未知"
+        "0" -> "关闭"; "1" -> "严格模式"; "2" -> "过滤模式"; else -> "未知"
     }
 } catch (_: Exception) { "未知" }
