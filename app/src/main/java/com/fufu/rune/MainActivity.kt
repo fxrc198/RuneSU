@@ -154,12 +154,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** 按压反馈：缩到 0.96 再 spring 弹回，圆角底替代系统方框水波纹。 */
 @Composable
-private fun Modifier.pressable(
-    shape: Shape = RoundedCornerShape(12.dp),
-    onClick: () -> Unit
-): Modifier {
+private fun Modifier.pressable(shape: Shape = RoundedCornerShape(12.dp), onClick: () -> Unit): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
@@ -187,9 +183,9 @@ private fun Modifier.pressable(
 @Composable
 private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
     val ctx = LocalContext.current
+    val storage = remember { storageInfo() }
     val version = remember { versionName(ctx) }
     val kernel = remember { System.getProperty("os.version") ?: "-" }
-    val model = remember { "${Build.MANUFACTURER} ${Build.MODEL}" }
     val fingerprint = remember { Build.FINGERPRINT }
     val selinux = remember { selinuxStatus() }
     val seccomp = remember { seccompStatus() }
@@ -210,12 +206,13 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
         StatusCard(suPath, checked)
 
         Spacer(Modifier.height(12.dp))
+        DeviceCard(suPath, checked, modules, storage) { copy(ctx, it) }
+
+        Spacer(Modifier.height(12.dp))
         SectionCard {
             InfoRow(Icons.Outlined.Info, "管理器版本", version) { copy(ctx, version) }
             RowDivider()
             InfoRow(Icons.Outlined.Memory, "内核版本", kernel) { copy(ctx, kernel) }
-            RowDivider()
-            InfoRow(Icons.Outlined.PhoneAndroid, "设备型号", model) { copy(ctx, model) }
             RowDivider()
             InfoRow(Icons.Outlined.Fingerprint, "系统指纹", fingerprint) { copy(ctx, fingerprint) }
         }
@@ -225,16 +222,6 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?) {
             InfoRow(Icons.Outlined.Security, "SELinux 状态", selinux) { copy(ctx, selinux) }
             RowDivider()
             InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccomp) { copy(ctx, seccomp) }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        SectionCard {
-            InfoRow(
-                Icons.Outlined.Favorite,
-                "支持开发",
-                "RuneSU 将保持免费开源，向开发者捐赠以表示支持",
-                accent = true
-            ) {}
         }
 
         Spacer(Modifier.height(24.dp))
@@ -249,11 +236,7 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
         ok -> RuneTokens.Success
         else -> RuneTokens.Danger
     }
-    Surface(
-        color = color.copy(alpha = 0.10f),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(color = color.copy(alpha = 0.10f), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(40.dp).background(color.copy(alpha = 0.16f), CircleShape),
@@ -289,6 +272,114 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
 }
 
 @Composable
+private fun DeviceCard(
+    suPath: String?,
+    checked: Boolean,
+    modules: Int?,
+    storage: Pair<Long, Long>?,
+    onValue: (String) -> Unit
+) {
+    val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "-"
+    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(38.dp).background(RuneTokens.Accent.copy(alpha = 0.14f), RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.PhoneAndroid, null, tint = RuneTokens.Accent, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${Build.MANUFACTURER} ${Build.MODEL}",
+                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Android ${Build.VERSION.RELEASE} · $abi",
+                        fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                RootBadge(suPath, checked)
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DiCell(Icons.Outlined.DeveloperBoard, "架构", abi) { onValue(abi) }
+                DiCell(Icons.Outlined.SystemUpdate, "系统", "Android ${Build.VERSION.RELEASE}") {
+                    onValue("Android ${Build.VERSION.RELEASE}")
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DiCell(Icons.Outlined.Extension, "模块", modules?.let { "$it 个" } ?: "-") {
+                    onValue(modules?.let { "$it 个模块" } ?: "未检测到")
+                }
+                DiCell(Icons.Outlined.Storage, "可用", storage?.let { formatSize(it.second) } ?: "-") {
+                    onValue(storage?.let { formatSize(it.second) } ?: "-")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.DiCell(icon: ImageVector, label: String, value: String, onClick: () -> Unit) {
+    Surface(
+        color = RuneTokens.Panel2,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.weight(1f).heightIn(min = 56.dp).pressable(RoundedCornerShape(10.dp)) { onClick() }
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(28.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(7.dp))
+            Column(Modifier.weight(1f)) {
+                Text(label, fontSize = 10.sp, lineHeight = 13.sp, color = RuneTokens.Muted)
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    value, fontSize = 12.sp, lineHeight = 15.sp, color = RuneTokens.Text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RootBadge(suPath: String?, checked: Boolean) {
+    val color = when {
+        !checked -> RuneTokens.Muted
+        suPath != null -> RuneTokens.Success
+        else -> RuneTokens.Danger
+    }
+    val label = when {
+        !checked -> "检测中"
+        suPath != null -> "Root"
+        else -> "未 Root"
+    }
+    Row(
+        Modifier.background(color.copy(alpha = 0.14f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(5.dp).background(color, CircleShape))
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 10.sp, color = color, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
 private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), content = content)
@@ -296,22 +387,12 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun InfoRow(
-    icon: ImageVector,
-    title: String,
-    value: String,
-    accent: Boolean = false,
-    onClick: () -> Unit
-) {
+private fun InfoRow(icon: ImageVector, title: String, value: String, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().pressable { onClick() }.padding(horizontal = 6.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Icon(
-            icon, null,
-            tint = if (accent) RuneTokens.Accent else RuneTokens.Muted,
-            modifier = Modifier.padding(top = 1.dp).size(22.dp)
-        )
+        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(22.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
@@ -353,8 +434,7 @@ private fun BottomBar(current: Int, onSelect: (Int) -> Unit) {
                 val active = current == idx
                 val tint = if (active) RuneTokens.Accent else RuneTokens.Muted
                 Column(
-                    Modifier.weight(1f).fillMaxHeight()
-                        .pressable(RoundedCornerShape(14.dp)) { onSelect(idx) },
+                    Modifier.weight(1f).fillMaxHeight().pressable(RoundedCornerShape(14.dp)) { onSelect(idx) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
