@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private var page by mutableStateOf(0)
     private var snap by mutableStateOf(Snapshot())
     private var refreshing by mutableStateOf(false)
+    private var termEnabled by mutableStateOf(false)
 
     private val requestAll = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -113,7 +114,7 @@ class MainActivity : ComponentActivity() {
                             when (page) {
                                 1 -> Placeholder("文件", "双栏文件管理，下一步做")
                                 2 -> Placeholder("模块", "接入 /data/adb/modules 后显示")
-                                3 -> Placeholder("设置", "外观 · 导航 · 关于")
+                                3 -> SettingsPage(termEnabled) { termEnabled = it }
                                 else -> Home(
                                     suPath = suPath,
                                     checked = checked,
@@ -237,6 +238,18 @@ private fun Home(
     onOpen: (Int) -> Unit
 ) {
     val ctx = LocalContext.current
+    val stats = buildList {
+        snap.cpu?.let { add(it to "负载") }
+        snap.mem?.let { add(it to "内存") }
+        snap.storage?.let { add(it to "存储") }
+        snap.battery?.let { add(it to "电池") }
+    }
+    val info = buildList {
+        add(Icons.Outlined.Code to ("内核版本" to (System.getProperty("os.version") ?: "")))
+        cpuModel()?.let { add(Icons.Outlined.Memory to ("处理器" to it)) }
+        add(Icons.Outlined.Fingerprint to ("系统指纹" to Build.FINGERPRINT))
+        snap.temp?.let { add(Icons.Outlined.Thermostat to ("电池温度" to String.format("%.1f °C", it))) }
+    }.filter { it.second.second.isNotBlank() }
 
     Column(
         Modifier
@@ -265,41 +278,38 @@ private fun Home(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
         StatusCard(suPath, checked)
 
-        Spacer(Modifier.height(10.dp))
-        StatStrip(snap)
+        if (stats.isNotEmpty()) {
+            SectionLabel("状态")
+            SectionCard {
+                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                    stats.forEach { (value, label) -> Stat(value, label) }
+                }
+            }
+        }
 
-        Spacer(Modifier.height(10.dp))
+        SectionLabel("管理")
         SectionCard {
             ActionRow(Icons.Outlined.Extension, "模块", modules?.let { "$it" } ?: "未接入") { onOpen(2) }
             RowDivider()
             ActionRow(Icons.Outlined.Person, "超级用户", "未接入") {
                 Toast.makeText(ctx, "接入 Root 后可用", Toast.LENGTH_SHORT).show()
             }
-            RowDivider()
-            ActionRow(Icons.Outlined.Terminal, "终端", "未接入") {
-                Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
-            }
-            RowDivider()
-            ActionRow(Icons.Outlined.Description, "日志", "未接入") {
-                Toast.makeText(ctx, "下一步做", Toast.LENGTH_SHORT).show()
+        }
+
+        if (info.isNotEmpty()) {
+            SectionLabel("系统")
+            SectionCard {
+                info.forEachIndexed { index, entry ->
+                    if (index > 0) RowDivider()
+                    InfoRow(entry.first, entry.second.first, entry.second.second)
+                }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        SectionCard {
-            InfoRow(Icons.Outlined.Code, "内核版本", System.getProperty("os.version") ?: "—")
-            RowDivider()
-            InfoRow(Icons.Outlined.Memory, "处理器", cpuModel() ?: "—")
-            RowDivider()
-            InfoRow(Icons.Outlined.Fingerprint, "系统指纹", Build.FINGERPRINT)
-            RowDivider()
-            InfoRow(Icons.Outlined.Thermostat, "电池温度", snap.temp?.let { String.format("%.1f °C", it) } ?: "—")
-        }
-
-        Spacer(Modifier.height(10.dp))
+        SectionLabel("安全")
         SectionCard {
             InfoRow(Icons.Outlined.Security, "SELinux 状态", selinuxStatus())
             RowDivider()
@@ -330,13 +340,21 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
         modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).background(color, CircleShape))
-            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.size(40.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (suPath != null) Icons.Outlined.VerifiedUser else Icons.Outlined.GppBad,
+                    null, tint = color, modifier = Modifier.size(21.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
-                Spacer(Modifier.height(2.dp))
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    sub, fontSize = 11.sp, color = RuneTokens.Muted,
+                    sub, fontSize = 12.sp, color = RuneTokens.Muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
@@ -345,26 +363,19 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
 }
 
 @Composable
-private fun StatStrip(snap: Snapshot) {
-    Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.98f, damping = 0.4f, stiffness = 500f)
-    ) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
-            Stat(snap.cpu, "负载")
-            Stat(snap.mem, "内存")
-            Stat(snap.storage, "存储")
-            Stat(snap.battery, "电池")
-        }
-    }
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        fontSize = 11.sp, color = RuneTokens.Muted,
+        modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp)
+    )
 }
 
 @Composable
-private fun RowScope.Stat(value: Int?, label: String) {
+private fun RowScope.Stat(value: Int, label: String) {
     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            value?.let { "$it%" } ?: "—",
+            "$value%",
             fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text
         )
         Spacer(Modifier.height(2.dp))
@@ -386,7 +397,7 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 4.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 4.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -396,19 +407,19 @@ private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: 
             Icon(icon, null, tint = RuneTokens.Accent, modifier = Modifier.size(17.dp))
         }
         Spacer(Modifier.width(12.dp))
-        Text(title, fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+        Text(title, fontSize = 14.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
         Text(badge, fontSize = 12.sp, color = RuneTokens.Muted)
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(2.dp))
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-            tint = RuneTokens.Muted, modifier = Modifier.size(18.dp)
+            tint = RuneTokens.Muted, modifier = Modifier.size(17.dp)
         )
     }
 }
 
 @Composable
 private fun InfoRow(icon: ImageVector, title: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.Top) {
         Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(20.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -422,6 +433,55 @@ private fun InfoRow(icon: ImageVector, title: String, value: String) {
 @Composable
 private fun RowDivider() {
     HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
+}
+
+@Composable
+private fun SettingsPage(termEnabled: Boolean, onTerm: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(horizontal = 14.dp)
+    ) {
+        Spacer(Modifier.height(16.dp))
+        Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+
+        SectionLabel("功能")
+        SectionCard {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.size(32.dp).background(RuneTokens.Accent.copy(alpha = 0.10f), RoundedCornerShape(9.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Accent, modifier = Modifier.size(17.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("终端", fontSize = 14.5.sp, color = RuneTokens.Text)
+                    Text("开启后在工具中显示", fontSize = 11.sp, color = RuneTokens.Muted)
+                }
+                Switch(checked = termEnabled, onCheckedChange = onTerm)
+            }
+            RowDivider()
+            ActionRow(Icons.Outlined.Description, "导出日志", "未接入") {
+                Toast.makeText(ctx, "接入 Root 后可用", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        SectionLabel("关于")
+        SectionCard {
+            InfoRow(Icons.Outlined.Info, "版本", "0.5.0")
+            RowDivider()
+            InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
+        }
+
+        Spacer(Modifier.height(24.dp))
+    }
 }
 
 @Composable
