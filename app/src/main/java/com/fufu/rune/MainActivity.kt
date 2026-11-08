@@ -188,9 +188,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * 轻触手感：按下立刻凹陷，松手低阻尼弹回。
- */
 @Composable
 private fun Modifier.bouncy(
     depth: Float = 0.96f,
@@ -429,20 +426,25 @@ private fun BottomBar(current: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-private fun cpuUsage(): Int? = try {
+private fun cpuUsage(): Int? {
     fun read(): LongArray {
-        val line = File("/proc/stat").readLines().first { it.startsWith("cpu ") }
+        val line = File("/proc/stat").readLines()
+            .firstOrNull { it.startsWith("cpu ") } ?: return LongArray(8)
         val p = line.trim().split(Regex("\\s+"))
-        LongArray(8) { i -> p.getOrNull(i + 1)?.toLongOrNull() ?: 0L }
+        return LongArray(8) { i -> p.getOrNull(i + 1)?.toLongOrNull() ?: 0L }
     }
-    val a = read()
-    Thread.sleep(320)
-    val b = read()
-    val idle = (b[3] + b[4]) - (a[3] + a[4])
-    val total = b.sum() - a.sum()
-    if (total <= 0) null
-    else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
-} catch (_: Exception) { null }
+    return try {
+        val a = read()
+        Thread.sleep(320)
+        val b = read()
+        val idle = (b[3] + b[4]) - (a[3] + a[4])
+        val total = b.sum() - a.sum()
+        if (total <= 0) null
+        else (((total - idle) * 100) / total).toInt().coerceIn(0, 100)
+    } catch (_: Exception) {
+        null
+    }
+}
 
 private fun memInfo(): Pair<Int, String>? = try {
     val map = File("/proc/meminfo").readLines().mapNotNull { line ->
