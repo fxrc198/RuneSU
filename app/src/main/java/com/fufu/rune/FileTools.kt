@@ -11,18 +11,30 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-internal enum class SortBy(val label: String) { NAME("名称"), SIZE("大小"), TIME("时间") }
+internal enum class SortBy(val label: String) {
+    NAME("名称"),
+    SIZE("大小"),
+    TIME("时间"),
+    TYPE("类型")
+}
 
-internal fun listDir(path: String, sort: SortBy): List<File> {
+internal data class SortSpec(
+    val by: SortBy = SortBy.NAME,
+    val desc: Boolean = false
+)
+
+internal fun listDir(path: String, spec: SortSpec): List<File> {
     val list = File(path).listFiles() ?: return emptyList()
     val dirs = list.filter { it.isDirectory }
     val files = list.filter { !it.isDirectory }
-    val cmp: Comparator<File> = when (sort) {
+    val cmp: Comparator<File> = when (spec.by) {
         SortBy.NAME -> compareBy { it.name.lowercase() }
-        SortBy.SIZE -> compareByDescending { it.length() }
-        SortBy.TIME -> compareByDescending { it.lastModified() }
+        SortBy.SIZE -> compareBy { it.length() }
+        SortBy.TIME -> compareBy { it.lastModified() }
+        SortBy.TYPE -> compareBy { it.extension.lowercase() }
     }
-    return dirs.sortedWith(cmp) + files.sortedWith(cmp)
+    val ordered = if (spec.desc) cmp.reversed() else cmp
+    return dirs.sortedWith(ordered) + files.sortedWith(ordered)
 }
 
 internal fun fileIcon(f: File): ImageVector {
