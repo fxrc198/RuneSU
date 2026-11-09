@@ -53,8 +53,8 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.atan2
-import kotlin.math.sin
 import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -573,7 +573,7 @@ private fun SettingsPage(
 
         SectionLabel("关于")
         PlainCard {
-            InfoRow(Icons.Outlined.Info, "版本", "1.3.0")
+            InfoRow(Icons.Outlined.Info, "版本", "1.3.1")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
@@ -596,35 +596,35 @@ private fun BottomNav(termEnabled: Boolean, current: Int, onSelect: (Int) -> Uni
     val items = navEntries(termEnabled)
     Surface(color = RuneTokens.Panel, modifier = Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().height(62.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { entry ->
                 val active = current == entry.id
-                Column(
+                Box(
                     Modifier.weight(1f).fillMaxHeight()
                         .bouncy(depth = 0.9f, damping = 0.3f, stiffness = 560f) { onSelect(entry.id) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             entry.icon, null,
                             tint = if (active) RuneTokens.Primary else RuneTokens.Muted,
                             modifier = Modifier.size(21.dp)
                         )
-                    }
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        entry.label, fontSize = 10.sp,
-                        color = if (active) RuneTokens.Primary else RuneTokens.Muted
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Box(
-                        Modifier.size(width = 14.dp, height = 3.dp).background(
-                            if (active) RuneTokens.Accent else Color.Transparent,
-                            RoundedCornerShape(2.dp)
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            entry.label, fontSize = 10.sp,
+                            color = if (active) RuneTokens.Primary else RuneTokens.Muted
                         )
+                    }
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)
+                            .size(width = 14.dp, height = 3.dp)
+                            .background(
+                                if (active) RuneTokens.Accent else Color.Transparent,
+                                RoundedCornerShape(2.dp)
+                            )
                     )
                 }
             }
