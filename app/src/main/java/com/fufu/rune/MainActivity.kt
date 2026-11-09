@@ -20,10 +20,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -44,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,22 +51,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.sin
+import kotlin.math.cos
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 object RuneTokens {
-    val Bg = Color(0xFFF7F8FA)
+    val Bg = Color(0xFFF4F5F7)
     val Panel = Color(0xFFFFFFFF)
-    val Panel2 = Color(0xFFF1F3F7)
-    val Border = Color(0xFFE8EBF1)
-    val Text = Color(0xFF141821)
+    val Panel2 = Color(0xFFEDEFF2)
+    val Border = Color(0xFFE3E6EA)
+    val Text = Color(0xFF1A1C1E)
     val Muted = Color(0xFF6B7280)
-    val Primary = Color(0xFF4C6FFF)
-    val Warn = Color(0xFFF59E0B)
-    val Danger = Color(0xFFEF4444)
-    val Success = Color(0xFF10B981)
+    val Primary = Color(0xFF1F2937)
+    val Accent = Color(0xFFD97706)
+    val Danger = Color(0xFFDC2626)
+    val Success = Color(0xFF16A34A)
 }
 
 data class Snapshot(
@@ -147,7 +151,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (!radial) {
-                            ArchBar(termEnabled, page) { idx ->
+                            BottomNav(termEnabled, page) { idx ->
                                 if (idx == 1 && !granted) askAllFiles() else page = idx
                             }
                         }
@@ -226,8 +230,8 @@ private fun navEntries(term: Boolean): List<NavEntry> = buildList {
 @Composable
 private fun Modifier.bouncy(
     depth: Float = 0.96f,
-    damping: Float = 0.30f,
-    stiffness: Float = 400f,
+    damping: Float = 0.32f,
+    stiffness: Float = 480f,
     onClick: (() -> Unit)? = null
 ): Modifier {
     val interaction = remember { MutableInteractionSource() }
@@ -237,7 +241,7 @@ private fun Modifier.bouncy(
     LaunchedEffect(pressed) {
         if (pressed) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            scale.animateTo(depth, spring(dampingRatio = 1f, stiffness = 1600f))
+            scale.animateTo(depth, spring(dampingRatio = 1f, stiffness = 1400f))
         } else {
             scale.animateTo(1f, spring(dampingRatio = damping, stiffness = stiffness))
         }
@@ -256,26 +260,26 @@ private fun Home(suPath: String?, checked: Boolean, modules: Int?, snap: Snapsho
             .statusBarsPadding()
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(Modifier.height(20.dp))
-        Text("RuneSU", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("RuneSU", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+        Spacer(Modifier.height(2.dp))
         Text(
             "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}".trim(),
-            fontSize = 11.5.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
+            fontSize = 11.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         StatusCard(suPath, checked)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         PerfCard(snap, modules)
         SectionLabel("设备")
         DeviceCard(snap)
         SectionLabel("安全")
-        SectionCard {
-            InfoRow(Icons.Outlined.Security, "SELinux 状态", selinuxStatus())
+        PlainCard {
+            InfoRow(Icons.Outlined.Security, "SELinux", selinuxStatus())
             RowDivider()
-            InfoRow(Icons.Outlined.FilterList, "Seccomp 状态", seccompStatus())
+            InfoRow(Icons.Outlined.FilterList, "Seccomp", seccompStatus())
         }
-        Spacer(Modifier.height(96.dp))
+        Spacer(Modifier.height(90.dp))
     }
 }
 
@@ -293,23 +297,14 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
     }
     Surface(
         color = RuneTokens.Panel,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, RuneTokens.Border),
-        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.985f, damping = 0.4f, stiffness = 500f)
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().bouncy(depth = 0.99f, damping = 0.42f, stiffness = 520f)
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(40.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (suPath != null) Icons.Outlined.VerifiedUser else Icons.Outlined.GppBad,
-                    null, tint = color, modifier = Modifier.size(21.dp)
-                )
-            }
-            Spacer(Modifier.width(12.dp))
+            Box(Modifier.size(6.dp).background(color, CircleShape))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     if (suPath != null) suPath else "安装 KernelSU 后自动启用",
@@ -322,19 +317,15 @@ private fun StatusCard(suPath: String?, checked: Boolean) {
 
 @Composable
 private fun PerfCard(snap: Snapshot, modules: Int?) {
-    Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, RuneTokens.Border),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(4.dp)) {
+    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
             Row {
-                PerfCell(Icons.Outlined.Memory, "内存", snap.mem, RuneTokens.Primary, Modifier.weight(1f))
-                PerfCell(Icons.Outlined.Storage, "存储", snap.storage, RuneTokens.Warn, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.Memory, "内存", snap.mem, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.Storage, "存储", snap.storage, Modifier.weight(1f))
             }
+            HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
             Row {
-                PerfCell(Icons.Outlined.BatteryFull, "电池", snap.battery, RuneTokens.Success, Modifier.weight(1f))
+                PerfCell(Icons.Outlined.BatteryFull, "电池", snap.battery, Modifier.weight(1f))
                 ModuleCell(modules, Modifier.weight(1f))
             }
         }
@@ -342,29 +333,26 @@ private fun PerfCard(snap: Snapshot, modules: Int?) {
 }
 
 @Composable
-private fun PerfCell(icon: ImageVector, label: String, value: Int?, tint: Color, modifier: Modifier) {
-    Column(modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+private fun PerfCell(icon: ImageVector, label: String, value: Int?, modifier: Modifier) {
+    Column(modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(20.dp).background(tint.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center
-            ) { Icon(icon, null, tint = tint, modifier = Modifier.size(12.dp)) }
-            Spacer(Modifier.width(6.dp))
+            Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(5.dp))
             Text(label, fontSize = 10.5.sp, color = RuneTokens.Muted)
         }
-        Spacer(Modifier.height(5.dp))
+        Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value?.toString() ?: "—", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+            Text(value?.toString() ?: "—", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
             if (value != null) {
-                Text("%", fontSize = 11.sp, color = RuneTokens.Muted,
+                Text("%", fontSize = 10.5.sp, color = RuneTokens.Muted,
                     modifier = Modifier.padding(start = 1.dp, bottom = 2.dp))
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(3.5.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp))) {
+        Spacer(Modifier.height(7.dp))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp))) {
             Box(
-                Modifier.fillMaxWidth(((value ?: 0) / 100f).coerceIn(0f, 1f)).height(3.5.dp)
-                    .background(tint, RoundedCornerShape(2.dp))
+                Modifier.fillMaxWidth(((value ?: 0) / 100f).coerceIn(0f, 1f)).height(3.dp)
+                    .background(RuneTokens.Accent, RoundedCornerShape(2.dp))
             )
         }
     }
@@ -372,23 +360,20 @@ private fun PerfCell(icon: ImageVector, label: String, value: Int?, tint: Color,
 
 @Composable
 private fun ModuleCell(modules: Int?, modifier: Modifier) {
-    Column(modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+    Column(modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(20.dp).background(RuneTokens.Primary.copy(alpha = 0.14f), RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Primary, modifier = Modifier.size(12.dp)) }
-            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Outlined.Extension, null, tint = RuneTokens.Muted, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(5.dp))
             Text("模块", fontSize = 10.5.sp, color = RuneTokens.Muted)
         }
-        Spacer(Modifier.height(5.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             modules?.let { "$it 个" } ?: "未接入",
-            fontSize = 17.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text,
+            fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text,
             maxLines = 1, overflow = TextOverflow.Ellipsis
         )
-        Spacer(Modifier.height(6.dp))
-        Box(Modifier.fillMaxWidth().height(3.5.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp)))
+        Spacer(Modifier.height(7.dp))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(RuneTokens.Panel2, RoundedCornerShape(2.dp)))
     }
 }
 
@@ -412,45 +397,41 @@ private fun DeviceCard(snap: Snapshot) {
         Icons.Outlined.Thermostat to ("温度" to (snap.temp?.let { String.format("%.1f°C", it) } ?: "—"))
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        cells.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { (icon, pair) -> GridCell(icon, pair.first, pair.second, Modifier.weight(1f)) }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
-            }
-        }
-        Surface(
-            color = RuneTokens.Panel,
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, RuneTokens.Border),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column {
-                Row(
-                    Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Outlined.Info, null, tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("更多设备信息", fontSize = 12.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                        tint = RuneTokens.Muted,
-                        modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = if (expanded) 90f else 0f }
-                    )
+    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Column {
+            cells.chunked(2).forEachIndexed { rowIndex, row ->
+                if (rowIndex > 0) HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
+                Row {
+                    row.forEach { (icon, pair) ->
+                        GridCell(icon, pair.first, pair.second, Modifier.weight(1f))
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
-                AnimatedVisibility(visible = expanded) {
-                    Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 6.dp)) {
-                        if (extra.isEmpty()) {
-                            Text("读取中…", fontSize = 11.sp, color = RuneTokens.Muted)
-                        } else {
-                            extra.forEach { (label, value) ->
-                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                    Text(label, fontSize = 11.sp, color = RuneTokens.Muted,
-                                        modifier = Modifier.width(72.dp))
-                                    Text(value, fontSize = 11.sp, color = RuneTokens.Text,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
+            }
+            HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
+            Row(
+                Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.Info, null, tint = RuneTokens.Muted, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("更多设备信息", fontSize = 12.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = RuneTokens.Muted,
+                    modifier = Modifier.size(15.dp).graphicsLayer { rotationZ = if (expanded) 90f else 0f }
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp)) {
+                    if (extra.isEmpty()) {
+                        Text("读取中…", fontSize = 11.sp, color = RuneTokens.Muted)
+                    } else {
+                        extra.forEach { (label, value) ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Text(label, fontSize = 11.sp, color = RuneTokens.Muted,
+                                    modifier = Modifier.width(70.dp))
+                                Text(value, fontSize = 11.sp, color = RuneTokens.Text,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -462,41 +443,27 @@ private fun DeviceCard(snap: Snapshot) {
 
 @Composable
 private fun GridCell(icon: ImageVector, label: String, value: String, modifier: Modifier) {
-    Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, RuneTokens.Border),
-        modifier = modifier.height(62.dp)
-    ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = RuneTokens.Primary, modifier = Modifier.size(12.dp))
-                Spacer(Modifier.width(5.dp))
-                Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
-            }
-            Spacer(Modifier.height(3.dp))
-            Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.size(12.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, fontSize = 9.5.sp, color = RuneTokens.Muted)
         }
+        Spacer(Modifier.height(4.dp))
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(
-        text, fontSize = 11.sp, color = RuneTokens.Muted,
-        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 7.dp)
-    )
+    Text(text, fontSize = 11.sp, color = RuneTokens.Muted,
+        modifier = Modifier.padding(start = 2.dp, top = 16.dp, bottom = 6.dp))
 }
 
 @Composable
-private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, RuneTokens.Border),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+private fun PlainCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp), content = content)
     }
 }
@@ -507,24 +474,24 @@ private fun ActionRow(icon: ImageVector, title: String, badge: String, onClick: 
         Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
+        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(14.dp))
-        Text(title, fontSize = 14.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
-        Text(badge, fontSize = 12.sp, color = RuneTokens.Muted)
+        Text(title, fontSize = 13.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+        Text(badge, fontSize = 11.5.sp, color = RuneTokens.Muted)
         Spacer(Modifier.width(4.dp))
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = RuneTokens.Muted, modifier = Modifier.size(16.dp))
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = RuneTokens.Muted, modifier = Modifier.size(15.dp))
     }
 }
 
 @Composable
 private fun InfoRow(icon: ImageVector, title: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.Top) {
-        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(19.dp))
+        Icon(icon, null, tint = RuneTokens.Muted, modifier = Modifier.padding(top = 1.dp).size(18.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
+            Text(title, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
             Spacer(Modifier.height(3.dp))
-            Text(value, fontSize = 11.5.sp, color = RuneTokens.Muted, lineHeight = 16.sp)
+            Text(value, fontSize = 11.sp, color = RuneTokens.Muted, lineHeight = 16.sp)
         }
     }
 }
@@ -541,15 +508,17 @@ private fun PermissionHint(onAsk: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Primary, modifier = Modifier.size(38.dp))
+        Icon(Icons.Outlined.Folder, null, tint = RuneTokens.Muted, modifier = Modifier.size(34.dp))
         Spacer(Modifier.height(12.dp))
-        Text("需要「所有文件访问」权限", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
+        Text("需要「所有文件访问」权限", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = RuneTokens.Text)
         Spacer(Modifier.height(6.dp))
-        Text("用于浏览和整理文件", fontSize = 12.sp, color = RuneTokens.Muted)
+        Text("用于浏览和整理文件", fontSize = 11.5.sp, color = RuneTokens.Muted)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onAsk, colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Primary)) {
-            Text("去授权")
-        }
+        Button(
+            onClick = onAsk,
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = RuneTokens.Primary)
+        ) { Text("去授权", fontSize = 13.sp) }
     }
 }
 
@@ -565,26 +534,26 @@ private fun SettingsPage(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .statusBarsPadding().padding(horizontal = 16.dp)
     ) {
-        Spacer(Modifier.height(20.dp))
-        Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
+        Spacer(Modifier.height(18.dp))
+        Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = RuneTokens.Text)
 
         SectionLabel("界面")
-        SectionCard {
+        PlainCard {
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.RadioButtonChecked, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
+                Icon(Icons.Outlined.RadioButtonChecked, null, tint = RuneTokens.Muted, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("扇形导航", fontSize = 14.sp, color = RuneTokens.Text)
-                    Text("拖动展开，松手吸附", fontSize = 11.sp, color = RuneTokens.Muted)
+                    Text("环形手势导航", fontSize = 13.5.sp, color = RuneTokens.Text)
+                    Text("按住中心钮向上滑动选择", fontSize = 11.sp, color = RuneTokens.Muted)
                 }
                 Switch(checked = radial, onCheckedChange = onRadial)
             }
             RowDivider()
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Muted, modifier = Modifier.size(19.dp))
+                Icon(Icons.Outlined.Terminal, null, tint = RuneTokens.Muted, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("终端", fontSize = 14.sp, color = RuneTokens.Text)
+                    Text("终端", fontSize = 13.5.sp, color = RuneTokens.Text)
                     Text("开启后导航栏显示终端", fontSize = 11.sp, color = RuneTokens.Muted)
                 }
                 Switch(checked = termEnabled, onCheckedChange = onTerm)
@@ -592,7 +561,7 @@ private fun SettingsPage(
         }
 
         SectionLabel("Root")
-        SectionCard {
+        PlainCard {
             ActionRow(Icons.Outlined.Language, "网页控制", "未接入") {
                 Toast.makeText(ctx, "需要 Root 环境", Toast.LENGTH_SHORT).show()
             }
@@ -603,12 +572,12 @@ private fun SettingsPage(
         }
 
         SectionLabel("关于")
-        SectionCard {
-            InfoRow(Icons.Outlined.Info, "版本", "1.2.0")
+        PlainCard {
+            InfoRow(Icons.Outlined.Info, "版本", "1.3.0")
             RowDivider()
             InfoRow(Icons.Outlined.Code, "项目", "RuneSU · 基于 KernelSU 生态")
         }
-        Spacer(Modifier.height(96.dp))
+        Spacer(Modifier.height(90.dp))
     }
 }
 
@@ -623,37 +592,39 @@ private fun Placeholder(title: String, desc: String) {
 }
 
 @Composable
-private fun ArchBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
+private fun BottomNav(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit) {
     val items = navEntries(termEnabled)
-    val center = (items.size - 1) / 2f
-    Surface(
-        color = RuneTokens.Panel,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(color = RuneTokens.Panel, modifier = Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().height(62.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            items.forEachIndexed { i, entry ->
+            items.forEach { entry ->
                 val active = current == entry.id
-                val norm = if (center == 0f) 0f else (i - center) / center
-                val lift = (-7f * (1f - norm * norm)).dp
-                val extra = if (active) (-5).dp else 0.dp
                 Column(
-                    Modifier.weight(1f).offset(y = lift + extra)
-                        .bouncy(depth = 0.88f, damping = 0.26f, stiffness = 520f) { onSelect(entry.id) },
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    Modifier.weight(1f).fillMaxHeight()
+                        .bouncy(depth = 0.9f, damping = 0.3f, stiffness = 560f) { onSelect(entry.id) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        entry.icon, null,
-                        tint = if (active) RuneTokens.Primary else RuneTokens.Muted,
-                        modifier = Modifier.size(if (active) 23.dp else 21.dp)
-                    )
-                    Spacer(Modifier.height(2.dp))
+                    Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            entry.icon, null,
+                            tint = if (active) RuneTokens.Primary else RuneTokens.Muted,
+                            modifier = Modifier.size(21.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         entry.label, fontSize = 10.sp,
                         color = if (active) RuneTokens.Primary else RuneTokens.Muted
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        Modifier.size(width = 14.dp, height = 3.dp).background(
+                            if (active) RuneTokens.Accent else Color.Transparent,
+                            RoundedCornerShape(2.dp)
+                        )
                     )
                 }
             }
@@ -664,89 +635,107 @@ private fun ArchBar(termEnabled: Boolean, current: Int, onSelect: (Int) -> Unit)
 @Composable
 private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     var open by remember { mutableStateOf(false) }
+    var active by remember { mutableStateOf(-1) }
     val progress = remember { Animatable(0f) }
+    val btnDp = 56.dp
+    val radiusDp = 100.dp
 
     LaunchedEffect(open) {
-        progress.animateTo(if (open) 1f else 0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+        progress.animateTo(if (open) 1f else 0f, spring(dampingRatio = 0.8f, stiffness = 500f))
     }
+
+    val step = if (items.size > 1) 156.0 / (items.size - 1) else 0.0
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val cx = maxWidth / 2
-        val cy = maxHeight - 96.dp
-        val radius = 104.dp
-        val btn = 54.dp
+        val cy = maxHeight - 92.dp
         val p = progress.value
 
         if (p > 0.01f) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.16f * p))
+                    .background(Color.Black.copy(alpha = 0.14f * p))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
-                    ) { open = false }
+                    ) { open = false; active = -1 }
             )
         }
 
         items.forEachIndexed { i, entry ->
-            val t = ((p - i * 0.05f) / 0.75f).coerceIn(0f, 1f)
-            val step = if (items.size > 1) 156.0 / (items.size - 1) else 0.0
+            val t = ((p - i * 0.04f) / 0.8f).coerceIn(0f, 1f)
             val angle = Math.toRadians(-78.0 + i * step)
-            val x = cx + radius * kotlin.math.sin(angle).toFloat()
-            val y = cy - radius * kotlin.math.cos(angle).toFloat()
-            val active = current == entry.id
+            val x = cx + radiusDp * sin(angle).toFloat()
+            val y = cy - radiusDp * cos(angle).toFloat()
+            val isActive = active == i
             Box(
                 Modifier
-                    .offset(x = x - btn / 2, y = y - btn / 2)
-                    .size(btn)
+                    .offset(x = x - 24.dp, y = y - 24.dp)
+                    .size(48.dp)
                     .graphicsLayer {
                         alpha = t
-                        scaleX = 0.7f + 0.3f * t
-                        scaleY = 0.7f + 0.3f * t
+                        scaleX = if (isActive) 1.12f else 0.8f + 0.2f * t
+                        scaleY = if (isActive) 1.12f else 0.8f + 0.2f * t
                     }
-                    .background(if (active) RuneTokens.Primary else RuneTokens.Panel, CircleShape)
-                    .clickable(enabled = p > 0.5f) { onSelect(entry.id); open = false },
+                    .background(if (isActive) RuneTokens.Primary else RuneTokens.Panel, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(entry.icon, null,
-                        tint = if (active) Color.White else RuneTokens.Muted,
-                        modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.height(2.dp))
-                    Text(entry.label, fontSize = 9.sp,
-                        color = if (active) Color.White else RuneTokens.Muted)
-                }
+                Icon(
+                    entry.icon, null,
+                    tint = if (isActive) Color.White else RuneTokens.Muted,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
 
         Box(
-            Modifier.offset(x = cx - 28.dp, y = cy - 28.dp).size(56.dp)
-                .graphicsLayer { rotationZ = 90f * p }
+            Modifier
+                .offset(x = cx - btnDp / 2, y = cy - btnDp / 2)
+                .size(btnDp)
                 .background(RuneTokens.Primary, CircleShape)
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { _, dy ->
+                .pointerInput(items) {
+                    detectDragGestures(
+                        onDragStart = {
+                            open = true
+                            active = -1
                             scope.launch {
-                                val target = (progress.value - dy / 220f).coerceIn(0f, 1f)
-                                progress.snapTo(target)
+                                progress.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 600f))
                             }
                         },
+                        onDrag = { change, _ ->
+                            val half = with(density) { (btnDp / 2).toPx() }
+                            val dx = change.position.x - half
+                            val dy = change.position.y - half
+                            var rel = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 90.0
+                            if (rel > 180) rel -= 360
+                            if (rel < -180) rel += 360
+                            var best = -1
+                            var bestDiff = 30.0
+                            items.forEachIndexed { i, _ ->
+                                val a = -78.0 + i * step
+                                val d = abs(rel - a)
+                                if (d < bestDiff) { bestDiff = d; best = i }
+                            }
+                            active = best
+                        },
                         onDragEnd = {
+                            val index = active
                             scope.launch {
-                                if (progress.value > 0.4f) {
-                                    open = true
-                                    progress.animateTo(1f, spring(dampingRatio = 0.78f, stiffness = 420f))
-                                } else {
-                                    open = false
-                                    progress.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f))
-                                }
+                                open = false
+                                active = -1
+                                progress.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f))
+                            }
+                            if (index in items.indices) {
+                                onSelect(items[index].id)
                             }
                         },
                         onDragCancel = {
+                            active = -1
                             scope.launch {
-                                open = progress.value > 0.4f
-                                progress.animateTo(if (open) 1f else 0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                                open = false
+                                progress.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f))
                             }
                         }
                     )
@@ -759,7 +748,7 @@ private fun RadialNav(current: Int, items: List<NavEntry>, onSelect: (Int) -> Un
         ) {
             Icon(
                 if (open) Icons.Outlined.Close else Icons.Outlined.Menu, null,
-                tint = Color.White, modifier = Modifier.size(24.dp)
+                tint = Color.White, modifier = Modifier.size(22.dp)
             )
         }
     }
