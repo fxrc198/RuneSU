@@ -1,20 +1,17 @@
 package com.fufu.rune
 
 import android.widget.Toast
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,16 +21,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 fun FileScreen(rootPath: String) {
@@ -41,10 +41,8 @@ fun FileScreen(rootPath: String) {
     var left by remember { mutableStateOf(rootPath) }
     var right by remember { mutableStateOf("$rootPath/Download") }
     var tick by remember { mutableStateOf(0) }
-    var sortL by remember { mutableStateOf(SortBy.NAME) }
-    var sortR by remember { mutableStateOf(SortBy.NAME) }
-    var multiL by remember { mutableStateOf(false) }
-    var multiR by remember { mutableStateOf(false) }
+    var sortL by remember { mutableStateOf(SortSpec()) }
+    var sortR by remember { mutableStateOf(SortSpec()) }
     var selL by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selR by remember { mutableStateOf<Set<String>>(emptySet()) }
     var menuFor by remember { mutableStateOf<File?>(null) }
@@ -54,6 +52,7 @@ fun FileScreen(rootPath: String) {
     var newPane by remember { mutableStateOf(-1) }
     var bookmarks by remember { mutableStateOf(listOf<String>()) }
     var bookmarkMenu by remember { mutableStateOf(false) }
+    var sortPane by remember { mutableStateOf(-1) }
     var input by remember { mutableStateOf("") }
 
     fun runOp(msg: () -> String) {
@@ -66,8 +65,8 @@ fun FileScreen(rootPath: String) {
         }.start()
     }
 
-    fun exitMulti(pane: Int) {
-        if (pane == 0) { multiL = false; selL = emptySet() } else { multiR = false; selR = emptySet() }
+    fun clearSel(pane: Int) {
+        if (pane == 0) selL = emptySet() else selR = emptySet()
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -86,82 +85,78 @@ fun FileScreen(rootPath: String) {
         Row(Modifier.weight(1f)) {
             DirPane(
                 modifier = Modifier.weight(1f), path = left, tick = tick, sort = sortL,
-                multi = multiL, selection = selL,
-                onSort = { sortL = nextSort(sortL) },
-                onMulti = { if (multiL) exitMulti(0) else { multiL = true; selL = emptySet() } },
-                onPath = { left = it; exitMulti(0) },
-                onToggle = { selL = toggle(selL, it) },
-                onDragSelect = { selL = selL + it },
+                selection = selL,
+                onSort = { sortPane = 0 },
+                onPath = { left = it; selL = emptySet() },
+                onToggle = { selL = if (selL.contains(it)) selL - it else selL + it },
                 onMenu = { menuFor = it; menuPane = 0 },
                 onNew = { newPane = 0; input = "" }
             )
             Box(Modifier.width(1.dp).fillMaxHeight().background(RuneTokens.Border))
             DirPane(
                 modifier = Modifier.weight(1f), path = right, tick = tick, sort = sortR,
-                multi = multiR, selection = selR,
-                onSort = { sortR = nextSort(sortR) },
-                onMulti = { if (multiR) exitMulti(1) else { multiR = true; selR = emptySet() } },
-                onPath = { right = it; exitMulti(1) },
-                onToggle = { selR = toggle(selR, it) },
-                onDragSelect = { selR = selR + it },
+                selection = selR,
+                onSort = { sortPane = 1 },
+                onPath = { right = it; selR = emptySet() },
+                onToggle = { selR = if (selR.contains(it)) selR - it else selR + it },
                 onMenu = { menuFor = it; menuPane = 1 },
                 onNew = { newPane = 1; input = "" }
             )
         }
+    }
 
-        if (selL.isNotEmpty() || selR.isNotEmpty()) {
-            val pane = if (selL.isNotEmpty()) 0 else 1
-            val sel = if (pane == 0) selL else selR
-            val files = sel.map { File(it) }
-            val other = if (pane == 0) File(right) else File(left)
-            Surface(color = RuneTokens.Panel2) {
-                Row(
-                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    BatchBtn(Icons.Outlined.ContentCopy, "复制") {
-                        runOp { batch(files) { copyRecursive(it, other) } }
-                        exitMulti(pane)
-                    }
-                    BatchBtn(Icons.Outlined.DriveFileMove, "移动") {
-                        runOp { batch(files) { it.renameTo(File(other, it.name)) } }
-                        exitMulti(pane)
-                    }
-                    BatchBtn(Icons.Outlined.Delete, "删除", danger = true) { deleteFor = files }
-                    BatchBtn(Icons.Outlined.SelectAll, "全选") {
-                        val dir = if (pane == 0) left else right
-                        val s = if (pane == 0) sortL else sortR
-                        val all = listDir(dir, s).map { it.absolutePath }.toSet()
-                        if (pane == 0) selL = all else selR = all
-                    }
-                    BatchBtn(Icons.Outlined.Close, "取消") { exitMulti(pane) }
-                }
-            }
+    if (sortPane >= 0) {
+        val spec = if (sortPane == 0) sortL else sortR
+        SortDialog(spec = spec, onDismiss = { sortPane = -1 }) { newSpec ->
+            if (sortPane == 0) sortL = newSpec else sortR = newSpec
+            sortPane = -1
         }
     }
 
     menuFor?.let { target ->
+        val paneSel = if (menuPane == 0) selL else selR
         val otherDir = File(if (menuPane == 0) right else left)
         val curDir = if (menuPane == 0) File(left) else File(right)
-        FileActionDialog(
-            file = target,
-            onDismiss = { menuFor = null },
-            onCopy = { menuFor = null; runOp { if (copyRecursive(target, otherDir)) "已复制" else "复制失败" } },
-            onMove = { menuFor = null; runOp { if (target.renameTo(File(otherDir, target.name))) "已移动" else "移动失败" } },
-            onRename = { input = target.name; renameFor = target; menuFor = null },
-            onDelete = { deleteFor = listOf(target); menuFor = null },
-            onZip = {
-                menuFor = null
-                runOp {
-                    val out = File(target.parentFile, "${target.name}.zip")
-                    if (zipFile(target, out)) "已压缩" else "压缩失败"
-                }
-            },
-            onUnzip = if (target.name.lowercase().endsWith(".zip")) ({
-                menuFor = null
-                runOp { if (unzip(target, curDir)) "已解压" else "解压失败" }
-            }) else null
-        )
+
+        if (paneSel.isNotEmpty()) {
+            val files = paneSel.map { File(it) }
+            BatchDialog(
+                count = files.size,
+                onDismiss = { menuFor = null },
+                onCopy = {
+                    menuFor = null
+                    runOp { batch(files) { copyRecursive(it, otherDir) } }
+                    clearSel(menuPane)
+                },
+                onMove = {
+                    menuFor = null
+                    runOp { batch(files) { it.renameTo(File(otherDir, it.name)) } }
+                    clearSel(menuPane)
+                },
+                onDelete = { menuFor = null; deleteFor = files },
+                onClear = { menuFor = null; clearSel(menuPane) }
+            )
+        } else {
+            FileActionDialog(
+                file = target,
+                onDismiss = { menuFor = null },
+                onCopy = { menuFor = null; runOp { if (copyRecursive(target, otherDir)) "已复制" else "复制失败" } },
+                onMove = { menuFor = null; runOp { if (target.renameTo(File(otherDir, target.name))) "已移动" else "移动失败" } },
+                onRename = { input = target.name; renameFor = target; menuFor = null },
+                onDelete = { deleteFor = listOf(target); menuFor = null },
+                onZip = {
+                    menuFor = null
+                    runOp {
+                        val out = File(target.parentFile, "${target.name}.zip")
+                        if (zipFile(target, out)) "已压缩" else "压缩失败"
+                    }
+                },
+                onUnzip = if (target.name.lowercase().endsWith(".zip")) ({
+                    menuFor = null
+                    runOp { if (unzip(target, curDir)) "已解压" else "解压失败" }
+                }) else null
+            )
+        }
     }
 
     if (bookmarkMenu) {
@@ -231,18 +226,69 @@ fun FileScreen(rootPath: String) {
     }
 }
 
-private fun nextSort(s: SortBy): SortBy = when (s) {
-    SortBy.NAME -> SortBy.SIZE
-    SortBy.SIZE -> SortBy.TIME
-    SortBy.TIME -> SortBy.NAME
+@Composable
+private fun BatchDialog(
+    count: Int,
+    onDismiss: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onClear: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Text("已选 $count 项", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Spacer(Modifier.height(12.dp))
+                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", onCopy)
+                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", onMove)
+                DlgAction(Icons.Outlined.Delete, "删除", "删除后不可恢复", onDelete, danger = true)
+                DlgAction(Icons.Outlined.Deselect, "取消选择", "清除当前选中", onClear)
+            }
+        }
+    }
 }
 
-private fun toggle(set: Set<String>, path: String): Set<String> =
-    if (set.contains(path)) set - path else set + path
-
-private fun indexAt(state: LazyListState, y: Float): Int {
-    val info = state.layoutInfo
-    return info.visibleItemsInfo.firstOrNull { y >= it.offset && y < it.offset + it.size }?.index ?: -1
+@Composable
+private fun SortDialog(spec: SortSpec, onDismiss: () -> Unit, onApply: (SortSpec) -> Unit) {
+    var by by remember { mutableStateOf(spec.by) }
+    var desc by remember { mutableStateOf(spec.desc) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Text("排序", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
+                Spacer(Modifier.height(10.dp))
+                SortBy.values().forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { by = option }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(option.label, fontSize = 13.5.sp, color = RuneTokens.Text,
+                            modifier = Modifier.weight(1f))
+                        if (by == option) {
+                            Icon(Icons.Outlined.Check, null, tint = RuneTokens.Accent,
+                                modifier = Modifier.size(17.dp))
+                        }
+                    }
+                }
+                HorizontalDivider(thickness = 0.7.dp, color = RuneTokens.Border)
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("降序", fontSize = 13.5.sp, color = RuneTokens.Text, modifier = Modifier.weight(1f))
+                    Switch(checked = desc, onCheckedChange = { desc = it })
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("取消", color = RuneTokens.Muted) }
+                    TextButton(onClick = { onApply(SortSpec(by, desc)) }) {
+                        Text("应用", color = RuneTokens.Primary)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -250,20 +296,17 @@ private fun DirPane(
     modifier: Modifier,
     path: String,
     tick: Int,
-    sort: SortBy,
-    multi: Boolean,
+    sort: SortSpec,
     selection: Set<String>,
     onSort: () -> Unit,
-    onMulti: () -> Unit,
     onPath: (String) -> Unit,
     onToggle: (String) -> Unit,
-    onDragSelect: (String) -> Unit,
     onMenu: (File) -> Unit,
     onNew: () -> Unit
 ) {
     val entries = remember(path, tick, sort) { listDir(path, sort) }
     val parent = File(path).parentFile
-    val listState = rememberLazyListState()
+    val selecting = selection.isNotEmpty()
 
     Column(modifier.fillMaxHeight()) {
         Row(
@@ -282,47 +325,26 @@ private fun DirPane(
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onSort, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Outlined.Sort, contentDescription = sort.label,
-                    tint = RuneTokens.Muted, modifier = Modifier.size(14.dp))
-            }
-            IconButton(onClick = onMulti, modifier = Modifier.size(28.dp)) {
-                Icon(if (multi) Icons.Outlined.Close else Icons.Outlined.SelectAll,
-                    contentDescription = "多选",
-                    tint = if (multi) RuneTokens.Primary else RuneTokens.Muted,
-                    modifier = Modifier.size(15.dp))
+                Icon(Icons.Outlined.Sort, contentDescription = sort.by.label,
+                    tint = RuneTokens.Muted, modifier = Modifier.size(15.dp))
             }
             IconButton(onClick = onNew, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建",
                     tint = RuneTokens.Muted, modifier = Modifier.size(15.dp))
             }
         }
-        LazyColumn(
-            state = listState,
-            userScrollEnabled = !multi,
-            modifier = Modifier.fillMaxSize().pointerInput(multi, entries) {
-                if (!multi) return@pointerInput
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val idx = indexAt(listState, offset.y)
-                        entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
-                    },
-                    onDrag = { change, _ ->
-                        val idx = indexAt(listState, change.position.y)
-                        entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
-                    }
-                )
-            }
-        ) {
+        LazyColumn(Modifier.fillMaxSize()) {
             items(entries, key = { it.absolutePath }) { f ->
                 MiniRow(
                     file = f,
                     selected = selection.contains(f.absolutePath),
-                    multi = multi,
+                    selecting = selecting,
                     onClick = {
-                        if (multi) onToggle(f.absolutePath)
+                        if (selecting) onToggle(f.absolutePath)
                         else if (f.isDirectory) onPath(f.absolutePath)
                     },
-                    onLong = { onMenu(f) }
+                    onLong = { onMenu(f) },
+                    onSwipe = { onToggle(f.absolutePath) }
                 )
             }
             item { Spacer(Modifier.height(20.dp)) }
@@ -335,21 +357,38 @@ private fun DirPane(
 private fun MiniRow(
     file: File,
     selected: Boolean,
-    multi: Boolean,
+    selecting: Boolean,
     onClick: () -> Unit,
-    onLong: () -> Unit
+    onLong: () -> Unit,
+    onSwipe: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
     val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = 900f),
-        label = "rowScale"
-    )
     Row(
         Modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+            .pointerInput(file.absolutePath) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        scope.launch {
+                            offsetX.snapTo((offsetX.value + dragAmount).coerceIn(-56f, 56f))
+                        }
+                    },
+                    onDragEnd = {
+                        val triggered = abs(offsetX.value) > 34f
+                        scope.launch {
+                            offsetX.animateTo(0f, spring(dampingRatio = 0.6f, stiffness = 700f))
+                        }
+                        if (triggered) onSwipe()
+                    },
+                    onDragCancel = {
+                        scope.launch { offsetX.animateTo(0f, spring()) }
+                    }
+                )
+            }
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
@@ -364,19 +403,15 @@ private fun MiniRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(26.dp).background(
-                if (file.isDirectory) RuneTokens.Panel2 else RuneTokens.Panel2,
-                RoundedCornerShape(7.dp)
-            ),
+            Modifier.size(26.dp).background(RuneTokens.Panel2, RoundedCornerShape(7.dp)),
             contentAlignment = Alignment.Center
         ) {
-            if (multi && selected) {
+            if (selected) {
                 Icon(Icons.Outlined.Check, null, tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
             } else {
                 Icon(
                     if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file), null,
-                    tint = RuneTokens.Muted,
-                    modifier = Modifier.size(15.dp)
+                    tint = RuneTokens.Muted, modifier = Modifier.size(15.dp)
                 )
             }
         }
@@ -388,17 +423,6 @@ private fun MiniRow(
                 if (file.isDirectory) dateText(file.lastModified()) else formatSize(file.length()),
                 fontSize = 9.5.sp, color = RuneTokens.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis
             )
-        }
-        if (multi) {
-            Box(
-                Modifier.size(18.dp).background(
-                    if (selected) RuneTokens.Primary else RuneTokens.Panel2,
-                    RoundedCornerShape(9.dp)
-                ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(12.dp))
-            }
         }
     }
 }
@@ -455,19 +479,6 @@ private fun DlgAction(
             Spacer(Modifier.height(1.dp))
             Text(desc, fontSize = 10.5.sp, color = RuneTokens.Muted)
         }
-    }
-}
-
-@Composable
-private fun RowScope.BatchBtn(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
-    val tint = if (danger) RuneTokens.Danger else RuneTokens.Text
-    Column(
-        Modifier.weight(1f).clickable { onClick() }.padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.height(2.dp))
-        Text(label, fontSize = 9.5.sp, color = tint)
     }
 }
 
