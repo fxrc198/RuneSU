@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -22,11 +23,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -167,7 +166,7 @@ fun FileScreen(rootPath: String) {
 
     if (bookmarkMenu) {
         Dialog(onDismissRequest = { bookmarkMenu = false }) {
-            Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(24.dp)) {
+            Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp)) {
                     Text("书签与快速访问", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = RuneTokens.Text)
                     Spacer(Modifier.height(8.dp))
@@ -211,8 +210,8 @@ fun FileScreen(rootPath: String) {
         AlertDialog(
             onDismissRequest = { deleteFor = null },
             containerColor = RuneTokens.Panel,
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("删除", fontWeight = FontWeight.SemiBold) },
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("删除", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
                     if (targets.size == 1) "确定删除「${targets[0].name}」？\n此操作不可恢复。"
@@ -294,27 +293,24 @@ private fun DirPane(
             }
             IconButton(onClick = onNew, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建",
-                    tint = RuneTokens.Primary, modifier = Modifier.size(15.dp))
+                    tint = RuneTokens.Muted, modifier = Modifier.size(15.dp))
             }
         }
         LazyColumn(
             state = listState,
+            userScrollEnabled = !multi,
             modifier = Modifier.fillMaxSize().pointerInput(multi, entries) {
                 if (!multi) return@pointerInput
-                awaitPointerEventScope {
-                    var last: Offset? = null
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.pressed } ?: continue
-                        val pos = change.position
-                        val prev = last
-                        if (prev != null && (pos - prev).getDistance() > 8f) {
-                            val idx = indexAt(listState, pos.y)
-                            entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
-                        }
-                        last = pos
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val idx = indexAt(listState, offset.y)
+                        entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
+                    },
+                    onDrag = { change, _ ->
+                        val idx = indexAt(listState, change.position.y)
+                        entries.getOrNull(idx)?.let { onDragSelect(it.absolutePath) }
                     }
-                }
+                )
             }
         ) {
             items(entries, key = { it.absolutePath }) { f ->
@@ -347,7 +343,7 @@ private fun MiniRow(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = 0.45f, stiffness = 900f),
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 900f),
         label = "rowScale"
     )
     Row(
@@ -361,7 +357,7 @@ private fun MiniRow(
                 onLongClick = onLong
             )
             .background(
-                if (selected) RuneTokens.Primary.copy(alpha = 0.12f) else Color.Transparent,
+                if (selected) RuneTokens.Primary.copy(alpha = 0.08f) else Color.Transparent,
                 RoundedCornerShape(8.dp)
             )
             .padding(horizontal = 8.dp, vertical = 7.dp),
@@ -369,7 +365,7 @@ private fun MiniRow(
     ) {
         Box(
             Modifier.size(26.dp).background(
-                if (file.isDirectory) RuneTokens.Primary.copy(alpha = 0.12f) else RuneTokens.Panel2,
+                if (file.isDirectory) RuneTokens.Panel2 else RuneTokens.Panel2,
                 RoundedCornerShape(7.dp)
             ),
             contentAlignment = Alignment.Center
@@ -379,7 +375,7 @@ private fun MiniRow(
             } else {
                 Icon(
                     if (file.isDirectory) Icons.Outlined.Folder else fileIcon(file), null,
-                    tint = if (file.isDirectory) RuneTokens.Primary else RuneTokens.Muted,
+                    tint = RuneTokens.Muted,
                     modifier = Modifier.size(15.dp)
                 )
             }
@@ -419,7 +415,7 @@ private fun FileActionDialog(
     onUnzip: (() -> Unit)?
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(24.dp)) {
+        Surface(color = RuneTokens.Panel, shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Text(file.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     color = RuneTokens.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -427,12 +423,12 @@ private fun FileActionDialog(
                 Text(file.absolutePath, fontSize = 10.5.sp, color = RuneTokens.Muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(12.dp))
-                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", RuneTokens.Primary, onCopy)
-                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", RuneTokens.Primary, onMove)
-                DlgAction(Icons.Outlined.FolderZip, "压缩", "打包为 ${file.name}.zip", RuneTokens.Muted, onZip)
-                onUnzip?.let { DlgAction(Icons.Outlined.Unarchive, "解压", "解压到当前目录", RuneTokens.Muted, it) }
-                DlgAction(Icons.Outlined.Edit, "重命名", "修改名称", RuneTokens.Muted, onRename)
-                DlgAction(Icons.Outlined.Delete, "删除", "删除后不可恢复", RuneTokens.Danger, onDelete, danger = true)
+                DlgAction(Icons.Outlined.ContentCopy, "复制到对面", "复制到另一栏当前目录", onCopy)
+                DlgAction(Icons.Outlined.DriveFileMove, "移动到对面", "移动到另一栏当前目录", onMove)
+                DlgAction(Icons.Outlined.FolderZip, "压缩", "打包为 ${file.name}.zip", onZip)
+                onUnzip?.let { DlgAction(Icons.Outlined.Unarchive, "解压", "解压到当前目录", it) }
+                DlgAction(Icons.Outlined.Edit, "重命名", "修改名称", onRename)
+                DlgAction(Icons.Outlined.Delete, "删除", "删除后不可恢复", onDelete, danger = true)
             }
         }
     }
@@ -440,20 +436,21 @@ private fun FileActionDialog(
 
 @Composable
 private fun DlgAction(
-    icon: ImageVector, title: String, desc: String, tint: Color,
-    onClick: () -> Unit, danger: Boolean = false
+    icon: ImageVector,
+    title: String,
+    desc: String,
+    onClick: () -> Unit,
+    danger: Boolean = false
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 8.dp),
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier.size(36.dp).background(tint.copy(alpha = 0.12f), RoundedCornerShape(11.dp)),
-            contentAlignment = Alignment.Center
-        ) { Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp)) }
-        Spacer(Modifier.width(12.dp))
+        Icon(icon, null, tint = if (danger) RuneTokens.Danger else RuneTokens.Muted,
+            modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            Text(title, fontSize = 13.5.sp,
                 color = if (danger) RuneTokens.Danger else RuneTokens.Text)
             Spacer(Modifier.height(1.dp))
             Text(desc, fontSize = 10.5.sp, color = RuneTokens.Muted)
@@ -494,8 +491,8 @@ private fun InputDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = RuneTokens.Panel,
-        shape = RoundedCornerShape(24.dp),
-        title = { Text(title, fontWeight = FontWeight.SemiBold) },
+        shape = RoundedCornerShape(16.dp),
+        title = { Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
         text = {
             OutlinedTextField(
                 value = value, onValueChange = onChange, singleLine = true,
